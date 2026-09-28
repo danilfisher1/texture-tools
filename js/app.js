@@ -893,59 +893,255 @@ window.__switchTab = function (name) {
     setStatus("erm ZIP 24 bit");
   });
 
+
   // ══════════ CHECK ══════════
-  var checkItems = [];
+  var checkItems = []; // raw list
+  var checkSets = [];  // grouped by key
+
+  function parseTexName(name) {
+    // T_Address_Diffuse_1.1001.png  or  T_Address_Normal_1.1001.png  or ERM
+    var base = name.replace(/\.png$/i, "");
+    var m = base.match(/^(T_.+)_(Diffuse|Normal|ERM)(_\d+)?\.(\d{4})$/i);
+    if (m) {
+      return {
+        ok: true,
+        prefix: "T_",
+        address: m[1].replace(/^T_/i, ""),
+        fullBase: m[1], // T_Address
+        type: m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase().replace(/^eRM$/i, "ERM").replace(/^Erm$/, "ERM"),
+        suffix: m[3] || "_1",
+        udim: parseInt(m[4], 10),
+        raw: name
+      };
+    }
+    // normalize type casing
+    var m2 = base.match(/^(T_.+)_(diffuse|normal|erm)(_\d+)?\.(\d{4})$/i);
+    if (m2) {
+      var typ = m2[2].toLowerCase();
+      typ = typ === "diffuse" ? "Diffuse" : typ === "normal" ? "Normal" : "ERM";
+      return {
+        ok: true,
+        prefix: "T_",
+        address: m2[1].replace(/^T_/i, ""),
+        fullBase: m2[1],
+        type: typ,
+        suffix: m2[3] || "_1",
+        udim: parseInt(m2[4], 10),
+        raw: name
+      };
+    }
+    return { ok: false, raw: name, type: null, udim: null, fullBase: null, suffix: null, address: null };
+  }
+
+  function normalizeType(t) {
+    if (!t) return null;
+    var x = t.toLowerCase();
+    if (x === "diffuse") return "Diffuse";
+    if (x === "normal") return "Normal";
+    if (x === "erm") return "ERM";
+    return t;
+  }
+
+  function setKey(parsed) {
+    return (parsed.fullBase || "") + "|" + (parsed.suffix || "_1") + "|" + (parsed.udim || 0);
+  }
+
+  function expectedName(fullBase, type, suffix, udim) {
+    return fullBase + "_" + type + suffix + "." + udim + ".png";
+  }
+
+  function makeSolidCanvas(size, r, g, b) {
+    var c = document.createElement("canvas");
+    c.width = size; c.height = size;
+    var ctx = c.getContext("2d");
+    ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+    ctx.fillRect(0, 0, size, size);
+    return c;
+  }
+
+  function rebuildCheckSets() {
+    var map = {};
+    var maskFrom = null;
+
+    checkItems.forEach(function (it) {
+      var p = it.parsed;
+      if (!p || !p.ok) {
+        var orphanKey = "__orphan__|" + it.name;
+        if (!map[orphanKey]) {
+          map[orphanKey] = {
+            key: orphanKey, fullBase: null, suffix: null, udim: null,
+            diffuse: null, normal: null, erm: null,
+            orphans: [], namingBad: true
+          };
+        }
+        map[orphanKey].orphans.push(it);
+        return;
+      }
+      p.type = normalizeType(p.type);
+      var k = setKey(p);
+      if (!map[k]) {
+        map[k] = {
+          key: k,
+          fullBase: p.fullBase,
+          suffix: p.suffix,
+          udim: p.udim,
+          address: p.address,
+          diffuse: null, normal: null, erm: null,
+          orphans: [], namingBad: false
+        };
+      }
+      if (p.type === "Diffuse") {
+        map[k].diffuse = it;
+        if (!maskFrom) maskFrom = p;
+      } else if (p.type === "Normal") map[k].normal = it;
+      else if (p.type === "ERM") map[k].erm = it;
+      else map[k].orphans.push(it);
+    });
+
+    // naming mask check vs first diffuse
+    checkSets = Object.keys(map).map(function (k) { return map[k]; });
+    checkSets.sort(function (a, b) {
+      var ua = a.udim || 0, ub = b.udim || 0;
+      if (ua !== ub) return ua - ub;
+      return (a.fullBase || "").localeCompare(b.fullBase || "");
+    });
+
+    checkSets.forEach(function (s) {
+      s.incomplete = !s.diffuse || !s.normal || !s.erm;
+      s.missing = [];
+      if (!s.diffuse) s.missing.push("Diffuse");
+      if (!s.normal) s.missing.push("Normal");
+      if (!s.erm) s.missing.push("ERM");
+
+      // resolution: Normal/ERM cannot be larger than Diffuse
+      s.resBad = false;
+      s.resMsg = [];
+      if (s.diffuse) {
+        var dw = s.diffuse.info.w;
+        if (s.normal && s.normal.info.w > dw) {
+          s.resBad = true;
+          s.resMsg.push("Normal " + s.normal.info.w + " > Diffuse " + dw);
+        }
+        if (s.erm && s.erm.info.w > dw) {
+          s.resBad = true;
+          s.resMsg.push("ERM " + s.erm.info.w + " > Diffuse " + dw);
+        }
+      }
+
+      // naming consistency with first diffuse mask
+      s.namingWarn = [];
+      if (maskFrom && s.fullBase && s.fullBase !== maskFrom.fullBase) {
+        s.namingWarn.push("база отличается от первой Diffuse (" + maskFrom.fullBase + ")");
+      }
+      if (maskFrom && s.suffix && s.suffix !== maskFrom.suffix) {
+        s.namingWarn.push("суффикс " + s.suffix + " ≠ " + maskFrom.suffix);
+      }
+    });
+
+    window.__checkMask = maskFrom;
+  }
 
   function renderCheckList() {
+    rebuildCheckSets();
     var box = document.getElementById("check-list");
-    var html = '<div class="check-row head"><span></span><span>Имя</span><span>Размер</span><span>Бит</span><span>Цвета</span><span>Изменить размер</span><span>Битность</span><span></span></div>';
-    checkItems.forEach(function (it, i) {
-      var cls = "check-row";
-      if (!it.info.sizeOk || it.info.stubBad) cls += " warn-size";
+    var summary = document.getElementById("check-summary");
+    var mask = window.__checkMask;
+    var incomplete = checkSets.filter(function (s) { return s.incomplete; }).length;
+    var resBad = checkSets.filter(function (s) { return s.resBad; }).length;
+    var namingBad = checkItems.filter(function (it) { return !it.parsed || !it.parsed.ok; }).length;
+
+    summary.innerHTML =
+      (mask ? ('Маска: <span class="name-hint">' + mask.fullBase + '_&lt;Diffuse|Normal|ERM&gt;' + mask.suffix + '.&lt;UDIM&gt;.png</span> · ') : 'Нет Diffuse для маски · ') +
+      'Наборов: ' + checkSets.length +
+      (incomplete ? ' · <span class="warn-size">неполных: ' + incomplete + '</span>' : ' · <span style="color:#6c6">все полные</span>') +
+      (resBad ? ' · <span class="warn-size">ошибка размера: ' + resBad + '</span>' : '') +
+      (namingBad ? ' · <span class="warn-size">нейминг: ' + namingBad + '</span>' : '');
+
+    function slotHtml(set, type, it) {
+      var exp = set.fullBase ? expectedName(set.fullBase, type, set.suffix, set.udim) : type;
+      if (!it) {
+        return '<div class="check-slot missing">' +
+          '<div class="slot-type">' + type + '</div>' +
+          '<div class="missing-label">НЕТ<br><span class="slot-name">' + exp + '</span></div></div>';
+      }
+      var cls = "check-slot";
       if (it.info.hasAlpha) cls += " warn-bit";
-      html += '<div class="' + cls + '" data-i="' + i + '">' +
-        '<canvas class="chk-thumb" data-i="' + i + '" width="28" height="28"></canvas>' +
-        '<span class="fname">' + it.name + "</span>" +
-        '<span class="' + (!it.info.sizeOk ? "warn-size" : "") + '">' + sizeLabel(it.info.w, it.info.h) +
-        (!it.info.sizeOk ? " ⚠" : "") + "</span>" +
-        '<span class="' + (it.info.hasAlpha ? "warn-size" : "") + '">' + it.outBits + (it.info.hasAlpha ? " ⚠α" : "") + "</span>" +
-        '<span class="' + (it.info.stubBad ? "warn-size" : "") + '">' +
-        (it.info.colorCount !== null ? it.info.colorCount + (it.info.stubBad ? " ⚠" : "") : "—") + "</span>" +
-        '<span><label><input type="checkbox" class="chk-resz" data-i="' + i + '"' + (it.resizeOn ? " checked" : "") + "> " +
-        '<select class="sel chk-rsz" data-i="' + i + '"' + (it.resizeOn ? "" : " disabled") + ">" +
-        '<option value="256"' + (it.resizeTo === 256 ? " selected" : "") + ">256</option>" +
-        '<option value="2048"' + (it.resizeTo === 2048 ? " selected" : "") + ">2048</option>" +
-        '<option value="4096"' + (it.resizeTo === 4096 ? " selected" : "") + ">4096</option></select></label></span>" +
-        '<span><select class="sel chk-bits" data-i="' + i + '">' +
-        '<option value="24"' + (it.outBits === 24 ? " selected" : "") + ">24 bit</option>" +
-        '<option value="32"' + (it.outBits === 32 ? " selected" : "") + ">32 bit</option></select></span>" +
-        '<span class="hint">' + sizeWarnText(it.info) + "</span></div>";
+      if (!it.info.sizeOk || it.info.stubBad) cls += " warn-size";
+      return '<div class="' + cls + '" data-item="' + checkItems.indexOf(it) + '">' +
+        '<div class="slot-type">' + type + '</div>' +
+        '<div class="slot-name">' + it.name + '</div>' +
+        '<div class="slot-meta">' + metaHtml(it.info) + '</div>' +
+        '<canvas class="set-thumb" data-i="' + checkItems.indexOf(it) + '"></canvas>' +
+        '<div class="row" style="margin-top:4px">' +
+        '<label><input type="checkbox" class="set-resz" data-i="' + checkItems.indexOf(it) + '"' + (it.resizeOn ? ' checked' : '') + '> Размер</label>' +
+        '<select class="sel set-rsz" data-i="' + checkItems.indexOf(it) + '"' + (it.resizeOn ? '' : ' disabled') + '>' +
+        '<option value="256"' + (it.resizeTo === 256 ? ' selected' : '') + '>256</option>' +
+        '<option value="2048"' + (it.resizeTo === 2048 ? ' selected' : '') + '>2048</option>' +
+        '<option value="4096"' + (it.resizeTo === 4096 ? ' selected' : '') + '>4096</option></select>' +
+        '<select class="sel set-bits" data-i="' + checkItems.indexOf(it) + '">' +
+        '<option value="24"' + (it.outBits === 24 ? ' selected' : '') + '>24</option>' +
+        '<option value="32"' + (it.outBits === 32 ? ' selected' : '') + '>32</option></select>' +
+        '</div></div>';
+    }
+
+    var html = "";
+    checkSets.forEach(function (s, si) {
+      var cls = "check-set";
+      if (s.incomplete) cls += " incomplete";
+      if (s.resBad) cls += " bad-res";
+      var head = '<div class="check-set-head">' +
+        '<span class="udim">UDIM ' + (s.udim || "?") + '</span>' +
+        '<span>' + (s.fullBase || "без маски") + (s.suffix || "") + '</span>';
+      if (s.incomplete) head += '<span class="warn">неполный набор: нет ' + s.missing.join(", ") + '</span>';
+      else head += '<span class="ok">полный набор</span>';
+      if (s.resBad) head += '<span class="warn">размер: ' + s.resMsg.join("; ") + '</span>';
+      if (s.namingWarn && s.namingWarn.length) head += '<span class="warn">' + s.namingWarn.join("; ") + '</span>';
+      if (s.namingBad) head += '<span class="warn">имя не по маске T_&lt;Адрес&gt;_Diffuse|Normal|ERM_…</span>';
+      head += '</div>';
+
+      html += '<div class="' + cls + '" data-set="' + si + '">' + head +
+        '<div class="check-triple">' +
+        slotHtml(s, "Diffuse", s.diffuse) +
+        slotHtml(s, "Normal", s.normal) +
+        slotHtml(s, "ERM", s.erm) +
+        '</div>';
+
+      if (s.orphans && s.orphans.length) {
+        html += '<div class="hint warn-size" style="margin-top:6px">Лишние/неразобранные: ' +
+          s.orphans.map(function (o) { return o.name; }).join(", ") + '</div>';
+      }
+      html += '</div>';
     });
-    box.innerHTML = html;
-    // thumbs
-    box.querySelectorAll(".chk-thumb").forEach(function (cv) {
+
+    box.innerHTML = html || '<div class="hint">Загрузите PNG текстуры набора</div>';
+
+    box.querySelectorAll(".set-thumb").forEach(function (cv) {
       var i = +cv.getAttribute("data-i");
       var it = checkItems[i];
-      drawThumb(cv, it.img, 28);
+      if (!it) return;
+      drawThumb(cv, it.img, 120);
       cv.onclick = function () { openFullscreen(it.img, it.name); };
     });
-    box.querySelectorAll(".chk-resz").forEach(function (cb) {
+    box.querySelectorAll(".set-resz").forEach(function (cb) {
       cb.addEventListener("change", function () {
         var i = +cb.getAttribute("data-i");
         checkItems[i].resizeOn = cb.checked;
         renderCheckList();
       });
     });
-    box.querySelectorAll(".chk-rsz").forEach(function (sel) {
+    box.querySelectorAll(".set-rsz").forEach(function (sel) {
       sel.addEventListener("change", function () {
         checkItems[+sel.getAttribute("data-i")].resizeTo = +sel.value;
       });
     });
-    box.querySelectorAll(".chk-bits").forEach(function (sel) {
+    box.querySelectorAll(".set-bits").forEach(function (sel) {
       sel.addEventListener("change", function () {
         checkItems[+sel.getAttribute("data-i")].outBits = +sel.value;
       });
     });
+
+    var hasIncomplete = checkSets.some(function (s) { return s.incomplete && s.fullBase; });
+    document.getElementById("check-fill-stubs").disabled = !hasIncomplete;
     document.getElementById("check-download").disabled = !checkItems.length;
   }
 
@@ -957,24 +1153,77 @@ window.__switchTab = function (name) {
       try {
         var img = await loadImageFromFile(files[i]);
         var info = analyzeImage(img);
+        var parsed = parseTexName(files[i].name);
+        if (parsed.ok) parsed.type = normalizeType(parsed.type);
         checkItems.push({
-          file: files[i], img: img, name: files[i].name, info: info,
+          file: files[i], img: img, name: files[i].name, info: info, parsed: parsed,
           resizeOn: false, resizeTo: info.sizeOk ? info.w : 2048,
-          outBits: info.hasAlpha ? 32 : 24
+          outBits: info.hasAlpha ? 32 : 24,
+          canvas: null
         });
       } catch (err) { console.error(err); }
     }
     renderCheckList();
-    setStatus("Проверка: " + checkItems.length + " PNG");
+    setStatus("Проверка: " + checkItems.length + " PNG, наборов: " + checkSets.length);
+  });
+
+  document.getElementById("check-fill-stubs").addEventListener("click", function () {
+    rebuildCheckSets();
+    var added = 0;
+    checkSets.forEach(function (s) {
+      if (!s.fullBase || !s.udim) return;
+      var dSize = s.diffuse ? s.diffuse.info.w : 256;
+      // stubs at min(diffuse size, 256) — typically 256 solid
+      var stubSize = 256;
+      if (s.diffuse && ALLOWED_SIZES.indexOf(dSize) !== -1) {
+        // stub can be 256 even if diffuse is 2k — allowed
+        stubSize = 256;
+      }
+      if (!s.normal) {
+        var nName = expectedName(s.fullBase, "Normal", s.suffix, s.udim);
+        var nCanvas = makeSolidCanvas(stubSize, 128, 128, 255);
+        // create fake img from canvas
+        var nImg = new Image();
+        nImg.width = stubSize; nImg.height = stubSize;
+        // store canvas as source
+        var nItem = {
+          file: null, img: null, name: nName,
+          info: { w: stubSize, h: stubSize, hasAlpha: false, bits: 24, colorCount: 1, sizeOk: true, stubBad: false },
+          parsed: parseTexName(nName),
+          resizeOn: false, resizeTo: stubSize, outBits: 24,
+          canvas: nCanvas, isStub: true
+        };
+        // use canvas as drawable
+        nItem.img = nCanvas;
+        checkItems.push(nItem);
+        added++;
+      }
+      if (!s.erm) {
+        var eName = expectedName(s.fullBase, "ERM", s.suffix, s.udim);
+        // default ERM: E=0, R=0.95, M=0 → rgb(0, 242, 0) approx 0.95*255=242
+        var eCanvas = makeSolidCanvas(stubSize, 0, 242, 0);
+        var eItem = {
+          file: null, img: eCanvas, name: eName,
+          info: { w: stubSize, h: stubSize, hasAlpha: false, bits: 24, colorCount: 1, sizeOk: true, stubBad: false },
+          parsed: parseTexName(eName),
+          resizeOn: false, resizeTo: stubSize, outBits: 24,
+          canvas: eCanvas, isStub: true
+        };
+        checkItems.push(eItem);
+        added++;
+      }
+    });
+    renderCheckList();
+    setStatus("Добавлено заглушек: " + added);
+    if (added) alert("Создано заглушек: " + added + "\nNormal = RGB(128,128,255)\nERM = RGB(0,242,0) — E=0 R≈0.95 M=0\nСкачайте ZIP чтобы сохранить.");
   });
 
   document.getElementById("check-download").addEventListener("click", async function () {
     var zip = new JSZip();
     for (var i = 0; i < checkItems.length; i++) {
       var it = checkItems[i];
-      var c = imgToCanvas(it.img);
+      var c = it.canvas ? it.canvas : imgToCanvas(it.img);
       if (it.resizeOn) c = resizeCanvas(c, it.resizeTo);
-      // if 24 bit, flatten alpha onto black
       if (it.outBits === 24) {
         var flat = document.createElement("canvas");
         flat.width = c.width; flat.height = c.height;
@@ -991,8 +1240,9 @@ window.__switchTab = function (name) {
     a.href = URL.createObjectURL(content);
     a.download = "checked_textures.zip";
     a.click();
-    setStatus("ZIP готов");
+    setStatus("ZIP готов (" + checkItems.length + ")");
   });
+
 
   setStatus("Готов · только PNG · выход 24 bit");
 })();

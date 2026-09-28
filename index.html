@@ -201,15 +201,17 @@
     <!-- CHECK -->
     <div class="panel" id="panel-check">
       <div class="group">
-        <div class="group-title">Проверка и правка PNG</div>
+        <div class="group-title">Проверка наборов (Diffuse + Normal + ERM)</div>
         <div class="row">
           <input type="file" id="check-files" accept="image/png,.png" multiple>
+          <button id="check-fill-stubs" class="btn" disabled>Создать недостающие заглушки</button>
           <button id="check-download" class="btn primary" disabled>Скачать ZIP</button>
         </div>
         <div class="row">
-          <span class="hint">Красный = размер не 256/2048/4096 или заглушка 256 с &gt;1 цвета. Жёлтый = 32 bit (есть альфа).</span>
+          <span class="hint">Маска с первой Diffuse: T_&lt;Адрес&gt;_Diffuse|Normal|ERM_&lt;суффикс&gt;.&lt;UDIM&gt;.png · Наборы по UDIM · Diffuse может быть больше Normal/ERM, наоборот нельзя · Красный = ошибка · Жёлтый = 32 bit</span>
         </div>
-        <div id="check-list" class="check-table"></div>
+        <div id="check-summary" class="row hint"></div>
+        <div id="check-list" class="check-sets"></div>
       </div>
     </div>
 

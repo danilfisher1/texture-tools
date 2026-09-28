@@ -384,3 +384,74 @@ select.sel {
   cursor: zoom-in;
 }
 .check-row .fname { word-break: break-all; color: #ccc; }
+
+.check-sets {
+  overflow-y: auto;
+  max-height: calc(100vh - 170px);
+  padding: 6px;
+}
+.check-set {
+  background: #2a2a2a;
+  border: 1px solid #1a1a1a;
+  margin-bottom: 10px;
+  padding: 8px;
+}
+.check-set.incomplete { border-color: #a44; }
+.check-set.bad-res { border-color: #c66; }
+.check-set-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #ddd;
+  font-weight: bold;
+}
+.check-set-head .udim { color: #9cf; font-family: Consolas, monospace; }
+.check-set-head .warn { color: #f66; font-weight: normal; font-size: 11px; }
+.check-set-head .ok { color: #6c6; font-weight: normal; font-size: 11px; }
+.check-triple {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+.check-slot {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  padding: 6px;
+  min-height: 120px;
+}
+.check-slot.missing {
+  border: 1px dashed #a44;
+  background: #2a1818;
+}
+.check-slot.warn-bit { background: #3a3520; }
+.check-slot.warn-size { border-color: #f44; }
+.check-slot .slot-type {
+  font-weight: bold;
+  color: #9ab;
+  margin-bottom: 4px;
+}
+.check-slot .slot-name {
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  color: #9cf;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+.check-slot .slot-meta { color: #888; font-size: 10px; }
+.check-slot canvas {
+  width: 100%;
+  max-height: 100px;
+  object-fit: contain;
+  background: #111;
+  border: 1px solid #333;
+  cursor: zoom-in;
+  display: block;
+  margin-top: 4px;
+}
+.check-slot .missing-label {
+  color: #f88;
+  padding: 20px 8px;
+  text-align: center;
+}
