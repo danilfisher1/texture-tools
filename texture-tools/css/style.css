@@ -1,0 +1,244 @@
+/* ── 3ds Max-like technical UI ── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  background: #2b2b2b;
+  color: #c8c8c8;
+  font-family: "Tahoma", "MS Sans Serif", "Segoe UI", sans-serif;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid #1a1a1a;
+}
+
+/* Title bar */
+.titlebar {
+  background: linear-gradient(180deg, #4a4a4a 0%, #3a3a3a 100%);
+  border-bottom: 1px solid #1a1a1a;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 24px;
+  user-select: none;
+}
+.titlebar .title {
+  font-weight: bold;
+  color: #e0e0e0;
+}
+.titlebar .subtitle {
+  color: #888;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  background: #333;
+  border-bottom: 1px solid #1a1a1a;
+  padding: 0 4px;
+  gap: 1px;
+}
+.tab {
+  background: #3a3a3a;
+  border: 1px solid #1a1a1a;
+  border-bottom: none;
+  color: #aaa;
+  padding: 5px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.tab:hover {
+  background: #454545;
+  color: #ddd;
+}
+.tab.active {
+  background: #2b2b2b;
+  color: #fff;
+  border-bottom: 1px solid #2b2b2b;
+  margin-bottom: -1px;
+}
+
+/* Panels */
+.panel {
+  display: none;
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+  background: #2b2b2b;
+}
+.panel.active {
+  display: block;
+}
+
+/* Groups (like Max rollouts) */
+.group {
+  background: #353535;
+  border: 1px solid #1a1a1a;
+  margin-bottom: 8px;
+}
+.group-title {
+  background: #3f3f3f;
+  border-bottom: 1px solid #1a1a1a;
+  padding: 3px 6px;
+  font-weight: bold;
+  color: #ddd;
+  user-select: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  min-height: 26px;
+}
+.row label {
+  min-width: 70px;
+  color: #bbb;
+}
+.row .hint {
+  color: #777;
+}
+.row .val {
+  min-width: 28px;
+  text-align: right;
+  color: #9cf;
+  font-family: "Consolas", "Courier New", monospace;
+}
+
+/* Inputs */
+input[type="file"] {
+  color: #ccc;
+  font-size: 11px;
+  max-width: 100%;
+}
+input[type="number"].num {
+  width: 56px;
+  background: #1e1e1e;
+  border: 1px solid #111;
+  border-top-color: #000;
+  border-left-color: #000;
+  border-right-color: #555;
+  border-bottom-color: #555;
+  color: #ddd;
+  padding: 2px 4px;
+  font-family: "Consolas", monospace;
+  font-size: 11px;
+}
+input[type="range"].slider {
+  flex: 1;
+  max-width: 160px;
+  height: 14px;
+  accent-color: #5a8;
+  cursor: pointer;
+}
+input[type="checkbox"] {
+  margin-right: 4px;
+  accent-color: #5a8;
+}
+
+/* Buttons */
+.btn {
+  background: #4a4a4a;
+  border: 1px solid #1a1a1a;
+  border-top-color: #666;
+  border-left-color: #666;
+  color: #ddd;
+  padding: 4px 12px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  min-width: 80px;
+}
+.btn:hover {
+  background: #555;
+  color: #fff;
+}
+.btn:active {
+  border-top-color: #1a1a1a;
+  border-left-color: #1a1a1a;
+  border-right-color: #666;
+  border-bottom-color: #666;
+  background: #3a3a3a;
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn.primary {
+  background: #3a5a3a;
+  border-top-color: #6a8a6a;
+  border-left-color: #6a8a6a;
+}
+.btn.primary:hover {
+  background: #4a6a4a;
+}
+
+/* Columns for normal tab */
+.columns {
+  display: flex;
+  gap: 8px;
+  height: 100%;
+}
+.col-left {
+  width: 280px;
+  flex-shrink: 0;
+}
+.col-right {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Preview */
+.preview-wrap {
+  background: #1a1a1a;
+  border: 1px solid #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  padding: 4px;
+}
+#norm-preview {
+  max-width: 100%;
+  max-height: 520px;
+  image-rendering: auto;
+  background: #111;
+}
+
+/* Log */
+.log {
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 11px;
+  color: #8c8;
+  padding: 6px 8px;
+  min-height: 80px;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  background: #1e1e1e;
+  border-top: 1px solid #111;
+}
+
+/* Status bar */
+.statusbar {
+  background: #333;
+  border-top: 1px solid #1a1a1a;
+  padding: 2px 8px;
+  height: 20px;
+  color: #999;
+  display: flex;
+  align-items: center;
+}
