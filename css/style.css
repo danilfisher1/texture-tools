@@ -58,14 +58,17 @@ html, body {
 }
 
 .panel {
-  display: none;
+  display: none !important;
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   padding: 8px;
   background: #2b2b2b;
   min-height: 0;
 }
-.panel.active { display: flex; flex-direction: column; }
+.panel.active {
+  display: flex !important;
+  flex-direction: column;
+}
 
 .group {
   background: #353535;

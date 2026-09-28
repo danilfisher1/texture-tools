@@ -3,14 +3,24 @@
 
   var ALLOWED_SIZES = [256, 2048, 4096];
 
+  function switchTab(name) {
+    document.querySelectorAll(".tab").forEach(function (t) {
+      t.classList.toggle("active", t.getAttribute("data-tab") === name);
+    });
+    document.querySelectorAll(".panel").forEach(function (p) {
+      var on = p.id === "panel-" + name;
+      p.classList.toggle("active", on);
+      p.style.display = on ? "flex" : "none";
+    });
+  }
   document.querySelectorAll(".tab").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
-      document.querySelectorAll(".panel").forEach(function (p) { p.classList.remove("active"); });
-      btn.classList.add("active");
-      document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      switchTab(btn.getAttribute("data-tab"));
     });
   });
+  // init visible panel
+  switchTab("pad");
 
   function setStatus(msg) { document.getElementById("status").textContent = msg; }
 
