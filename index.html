@@ -3,35 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Texture Tools — 90% / Normal DX / ERM</title>
+  <title>Texture Tools</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div id="app">
     <div class="titlebar">
       <span class="title">Texture Tools</span>
-      <span class="subtitle">90% края · Normal Map (DX) · ERM</span>
+      <span class="subtitle">только PNG · 24/32 bit · 256 / 2048 / 4096</span>
     </div>
 
     <div class="tabs">
       <button class="tab active" data-tab="pad">90% края</button>
       <button class="tab" data-tab="normal">Normal Map (DX)</button>
       <button class="tab" data-tab="erm">ERM</button>
+      <button class="tab" data-tab="check">Проверка / правка</button>
     </div>
 
     <!-- 90% -->
     <div class="panel active" id="panel-pad">
       <div class="group">
-        <div class="group-title">Ввод</div>
+        <div class="group-title">Ввод (только PNG)</div>
         <div class="row">
           <label>Текстуры</label>
-          <input type="file" id="pad-files" accept="image/*" multiple>
+          <input type="file" id="pad-files" accept="image/png,.png" multiple>
         </div>
         <div class="row">
           <label>Масштаб</label>
           <input type="number" id="pad-scale" value="0.90" min="0.50" max="0.99" step="0.01" class="num">
           <span class="hint">(0.90 = 90%)</span>
         </div>
+        <div id="pad-list" class="file-list tall"></div>
         <div class="row">
           <button id="pad-run" class="btn">Обработать → ZIP</button>
         </div>
@@ -47,9 +49,12 @@
       <div class="norm-layout">
         <div class="norm-sidebar">
           <div class="group">
-            <div class="group-title">Текстуры</div>
+            <div class="group-title">Текстуры (PNG)</div>
             <div class="row">
-              <input type="file" id="norm-files" accept="image/*" multiple>
+              <input type="file" id="norm-files" accept="image/png,.png" multiple>
+            </div>
+            <div class="row">
+              <button id="norm-add-flat" class="btn">+ Плоский Normal 256×256</button>
             </div>
             <div id="norm-list" class="file-list"></div>
           </div>
@@ -77,9 +82,7 @@
               <input type="range" id="norm-blur" min="0" max="30" value="0" step="0.5" class="slider">
               <input type="number" id="norm-blur-num" value="0" min="0" max="30" step="0.5" class="num">
             </div>
-            <div class="row">
-              <span id="norm-out-name" class="hint name-hint">Имя: —</span>
-            </div>
+            <div class="row"><span id="norm-out-name" class="hint name-hint">Имя: —</span></div>
             <div class="row">
               <button id="norm-save" class="btn primary" disabled>Скачать ZIP</button>
             </div>
@@ -99,19 +102,18 @@
       <div class="norm-layout">
         <div class="norm-sidebar">
           <div class="group">
-            <div class="group-title">Список ERM (сверху вниз по UDIM)</div>
+            <div class="group-title">Список ERM</div>
             <div class="row">
               <button id="erm-add-solid" class="btn">+ Сплошная 256×256</button>
-              <button id="erm-add-diffuse" class="btn">+ Из Diffuse</button>
+              <button id="erm-add-diffuse" class="btn">+ Из Diffuse PNG</button>
             </div>
             <div id="erm-list" class="file-list"></div>
             <div class="row">
               <button id="erm-download" class="btn primary" disabled>Скачать ERM ZIP</button>
             </div>
           </div>
-
           <div class="group" id="erm-editor" style="display:none">
-            <div class="group-title">Настройки выбранной ERM</div>
+            <div class="group-title">Настройки ERM</div>
             <div class="row">
               <label>База</label>
               <input type="text" id="erm-base" class="text" placeholder="T_Remizova_18_A_Ground">
@@ -122,19 +124,13 @@
             </div>
             <div class="row">
               <label>Суффикс</label>
-              <input type="text" id="erm-suffix" class="text short" value="_1" placeholder="_1">
+              <input type="text" id="erm-suffix" class="text short" value="_1">
             </div>
-            <div class="row">
-              <span id="erm-out-name" class="hint name-hint">Имя: —</span>
-            </div>
-
+            <div class="row"><span id="erm-out-name" class="hint name-hint">Имя: —</span></div>
             <div class="row section">E (R) Emissive</div>
             <div class="row">
               <label>Режим</label>
-              <select id="erm-e-mode" class="sel">
-                <option value="const">Константа</option>
-                <option value="from">Из канала Diffuse</option>
-              </select>
+              <select id="erm-e-mode" class="sel"><option value="const">Константа</option><option value="from">Из канала Diffuse</option></select>
             </div>
             <div class="row" id="erm-e-const-row">
               <label>Значение</label>
@@ -149,14 +145,10 @@
               <label>Контр</label>
               <input type="number" id="erm-e-contr" value="1" min="0" max="3" step="0.05" class="num">
             </div>
-
             <div class="row section">R (G) Roughness</div>
             <div class="row">
               <label>Режим</label>
-              <select id="erm-r-mode" class="sel">
-                <option value="const">Константа</option>
-                <option value="from">Из канала Diffuse</option>
-              </select>
+              <select id="erm-r-mode" class="sel"><option value="const">Константа</option><option value="from">Из канала Diffuse</option></select>
             </div>
             <div class="row" id="erm-r-const-row">
               <label>Значение</label>
@@ -171,33 +163,30 @@
               <label>Контр</label>
               <input type="number" id="erm-r-contr" value="1" min="0" max="3" step="0.05" class="num">
             </div>
-
             <div class="row section">M (B) Metallic 0/1</div>
             <div class="row">
               <label>Режим</label>
-              <select id="erm-m-mode" class="sel">
-                <option value="const">Константа</option>
-                <option value="from">Из канала Diffuse</option>
-              </select>
+              <select id="erm-m-mode" class="sel"><option value="const">Константа</option><option value="from">Из канала Diffuse</option></select>
             </div>
             <div class="row" id="erm-m-const-row">
               <label>Значение</label>
-              <select id="erm-m" class="sel">
-                <option value="0">0 не металл</option>
-                <option value="1">1 металл</option>
-              </select>
+              <select id="erm-m" class="sel"><option value="0">0 не металл</option><option value="1">1 металл</option></select>
             </div>
             <div class="row" id="erm-m-from-row" style="display:none">
               <label>Канал</label>
               <select id="erm-m-src" class="sel"><option value="0">R</option><option value="1">G</option><option value="2">B</option></select>
               <label>Порог</label>
               <input type="number" id="erm-m-thresh" value="0.5" min="0" max="1" step="0.05" class="num">
-              <span class="hint">&ge; → 1</span>
             </div>
-
             <div class="row">
-              <button id="erm-remove" class="btn danger">Удалить</button>
+              <label><input type="checkbox" id="erm-resize-on"> Изменить размер</label>
+              <select id="erm-resize" class="sel" disabled>
+                <option value="256">256×256</option>
+                <option value="2048">2048×2048</option>
+                <option value="4096">4096×4096</option>
+              </select>
             </div>
+            <div class="row"><button id="erm-remove" class="btn danger">Удалить</button></div>
           </div>
         </div>
         <div class="norm-preview">
@@ -209,16 +198,31 @@
       </div>
     </div>
 
-    <div class="statusbar"><span id="status">Готов</span></div>
+    <!-- CHECK -->
+    <div class="panel" id="panel-check">
+      <div class="group">
+        <div class="group-title">Проверка и правка PNG</div>
+        <div class="row">
+          <input type="file" id="check-files" accept="image/png,.png" multiple>
+          <button id="check-download" class="btn primary" disabled>Скачать ZIP</button>
+        </div>
+        <div class="row">
+          <span class="hint">Красный = размер не 256/2048/4096 или заглушка 256 с &gt;1 цвета. Жёлтый = 32 bit (есть альфа).</span>
+        </div>
+        <div id="check-list" class="check-table"></div>
+      </div>
+    </div>
+
+    <div class="statusbar"><span id="status">Готов · только PNG</span></div>
   </div>
 
-  <input type="file" id="erm-diffuse-pick" accept="image/*" style="display:none" multiple>
   <div id="fs-overlay">
-  <button type="button" id="fs-close">Закрыть (Esc)</button>
-  <canvas id="fs-canvas"></canvas>
-  <div id="fs-caption"></div>
-</div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <button type="button" id="fs-close">Закрыть (Esc)</button>
+    <canvas id="fs-canvas"></canvas>
+    <div id="fs-caption"></div>
+  </div>
+  <input type="file" id="erm-diffuse-pick" accept="image/png,.png" style="display:none" multiple>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
