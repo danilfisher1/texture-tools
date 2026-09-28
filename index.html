@@ -213,7 +213,12 @@
   </div>
 
   <input type="file" id="erm-diffuse-pick" accept="image/*" style="display:none" multiple>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <div id="fs-overlay">
+  <button type="button" id="fs-close">Закрыть (Esc)</button>
+  <canvas id="fs-canvas"></canvas>
+  <div id="fs-caption"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

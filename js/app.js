@@ -41,7 +41,7 @@
   }
 
   function drawThumb(canvas, src, maxSize) {
-    maxSize = maxSize || 200;
+    maxSize = maxSize || 900;
     var w = src.width || src.naturalWidth;
     var h = src.height || src.naturalHeight;
     var s = Math.min(1, maxSize / Math.max(w, h));
@@ -53,6 +53,33 @@
     ctx.clearRect(0, 0, dw, dh);
     ctx.drawImage(src, 0, 0, dw, dh);
   }
+
+  function openFullscreen(src, caption) {
+    var ov = document.getElementById("fs-overlay");
+    var cv = document.getElementById("fs-canvas");
+    var w = src.width || src.naturalWidth;
+    var h = src.height || src.naturalHeight;
+    cv.width = w;
+    cv.height = h;
+    cv.getContext("2d").drawImage(src, 0, 0);
+    document.getElementById("fs-caption").textContent = caption || "";
+    ov.classList.add("open");
+  }
+
+  function closeFullscreen() {
+    document.getElementById("fs-overlay").classList.remove("open");
+  }
+
+  document.getElementById("fs-close").addEventListener("click", function (e) {
+    e.stopPropagation();
+    closeFullscreen();
+  });
+  document.getElementById("fs-overlay").addEventListener("click", function (e) {
+    if (e.target.id === "fs-overlay" || e.target.id === "fs-canvas") closeFullscreen();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeFullscreen();
+  });
 
   // ══════════════ 90% ══════════════
   function processPadImage(img, scale) {
@@ -276,12 +303,20 @@
       if (it.resultCanvas) drawThumb(c2, it.resultCanvas);
       else { c2.width = 64; c2.height = 64; c2.getContext("2d").fillStyle = "#111"; c2.getContext("2d").fillRect(0,0,64,64); }
 
+      c1.style.cursor = "zoom-in";
+      c2.style.cursor = "zoom-in";
+      c1.onclick = function (e) { e.stopPropagation(); openFullscreen(it.img, it.name + " — Оригинал"); };
+      c2.onclick = function (e) {
+        e.stopPropagation();
+        if (it.resultCanvas) openFullscreen(it.resultCanvas, normalOutName(it.name) + " — Normal");
+      };
+
       var p1 = document.createElement("div");
       p1.className = "pair";
       p1.appendChild(c1);
       var cap1 = document.createElement("div");
       cap1.className = "caption";
-      cap1.textContent = "Оригинал";
+      cap1.textContent = "Оригинал (клик — полный экран)";
       p1.appendChild(cap1);
 
       var p2 = document.createElement("div");
@@ -289,7 +324,7 @@
       p2.appendChild(c2);
       var cap2 = document.createElement("div");
       cap2.className = "caption";
-      cap2.textContent = "Normal";
+      cap2.textContent = "Normal (клик — полный экран)";
       p2.appendChild(cap2);
 
       var info = document.createElement("div");
@@ -494,12 +529,23 @@
       }
       drawThumb(c2, it.resultCanvas);
 
+      c1.style.cursor = "zoom-in";
+      c2.style.cursor = "zoom-in";
+      c1.onclick = function (e) {
+        e.stopPropagation();
+        if (it.img) openFullscreen(it.img, it.base + " — Diffuse");
+      };
+      c2.onclick = function (e) {
+        e.stopPropagation();
+        if (it.resultCanvas) openFullscreen(it.resultCanvas, ermFileName(it) + " — ERM");
+      };
+
       var p1 = document.createElement("div");
       p1.className = "pair";
       p1.appendChild(c1);
       var cap1 = document.createElement("div");
       cap1.className = "caption";
-      cap1.textContent = it.img ? "Diffuse" : "—";
+      cap1.textContent = it.img ? "Diffuse (клик — полный экран)" : "—";
       p1.appendChild(cap1);
 
       var p2 = document.createElement("div");
@@ -507,7 +553,7 @@
       p2.appendChild(c2);
       var cap2 = document.createElement("div");
       cap2.className = "caption";
-      cap2.textContent = "ERM";
+      cap2.textContent = "ERM (клик — полный экран)";
       p2.appendChild(cap2);
 
       var info = document.createElement("div");
