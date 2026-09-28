@@ -1,26 +1,30 @@
+
+window.__switchTab = function (name) {
+  try {
+    document.querySelectorAll(".tab").forEach(function (t) {
+      t.classList.toggle("active", t.getAttribute("data-tab") === name);
+    });
+    document.querySelectorAll(".panel").forEach(function (p) {
+      var on = p.id === ("panel-" + name);
+      p.classList.toggle("active", on);
+      p.style.display = on ? "flex" : "none";
+    });
+  } catch (err) {
+    console.error(err);
+  }
+};
 (function () {
   "use strict";
 
   var ALLOWED_SIZES = [256, 2048, 4096];
 
-  function switchTab(name) {
-    document.querySelectorAll(".tab").forEach(function (t) {
-      t.classList.toggle("active", t.getAttribute("data-tab") === name);
-    });
-    document.querySelectorAll(".panel").forEach(function (p) {
-      var on = p.id === "panel-" + name;
-      p.classList.toggle("active", on);
-      p.style.display = on ? "flex" : "none";
-    });
-  }
   document.querySelectorAll(".tab").forEach(function (btn) {
     btn.addEventListener("click", function (e) {
       e.preventDefault();
-      switchTab(btn.getAttribute("data-tab"));
+      window.__switchTab(btn.getAttribute("data-tab"));
     });
   });
-  // init visible panel
-  switchTab("pad");
+  window.__switchTab("pad");
 
   function setStatus(msg) { document.getElementById("status").textContent = msg; }
 
@@ -724,7 +728,7 @@
       var p2 = document.createElement("div"); p2.className = "pair"; p2.appendChild(c2);
       var cap2 = document.createElement("div"); cap2.className = "caption"; cap2.textContent = "ERM"; p2.appendChild(cap2);
       var info = document.createElement("div"); info.className = "row-info";
-      info.innerHTML = '<div class="fname">' + ermFileName(it) + "</div><div class="meta">' + metaHtml(it.info) + "</div>";
+      info.innerHTML = '<div class="fname">' + ermFileName(it) + '</div><div class="meta">' + metaHtml(it.info) + "</div>";
       row.appendChild(p1); row.appendChild(p2); row.appendChild(info);
       row.onclick = function () { selectErm(i); };
       box.appendChild(row);
