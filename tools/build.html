@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Сборка библиотеки материалов</title>
+<style>
+  body { background: #2b2b2b; color: #ccc; font: 12px Tahoma, sans-serif; margin: 12px; }
+  button { background: #4a4a4a; color: #ddd; border: 1px solid #1a1a1a; padding: 5px 10px; margin-right: 6px; cursor: pointer; }
+  pre { background: #1e1e1e; padding: 8px; max-height: 260px; overflow: auto; font: 11px Consolas, monospace; color: #8c8; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, 120px); gap: 6px; margin-top: 10px; }
+  #grid div { font-size: 10px; } #grid img { width: 120px; height: 120px; display: block; }
+</style>
+</head>
+<body>
+<p>Только для локальной сборки: <code>node tools/serve.mjs 5173 &lt;папка с JPG ambientCG&gt;</code>, затем открыть <code>/tools/build.html</code>.</p>
+<button id="conv">1. Текстуры JPG → WebP</button>
+<button id="mat">2. Миниатюры материалов</button>
+<button id="fill">3. Миниатюры заполнений</button>
+<label><input type="checkbox" id="force"> перезаписывать</label>
+<pre id="log"></pre>
+<div id="grid"></div>
+<script type="module" src="build.js"></script>
+</body>
+</html>

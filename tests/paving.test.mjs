@@ -1,6 +1,7 @@
 // Тесты генератора мощения: node tests/paving.test.mjs
 import assert from "node:assert/strict";
 import zlib from "node:zlib";
+import fs from "node:fs";
 import { generate, buildLayout, parseRules, parseBond, ruleMat, rng, DEFAULTS, _internal } from "../js/paving/gen.js";
 import { encodePNG } from "../js/paving/png.js";
 
@@ -166,7 +167,32 @@ test("стык карт не отличается от середины", () => 
   assert.ok(dEdge < dMid * 1.6 + 20);
 });
 
-// 5. PNG: кодируем и декодируем обратно
+// 5. библиотека материалов, заполнений и профилей шва
+const { MATERIALS, textureAssets } = await import("../js/paving/materials.js");
+const { JOINT_FILLS, JOINT_PROFILES } = await import("../js/paving/joints.js");
+const { PRESETS } = await import("../js/paving/presets.js");
+test("материалы: id уникальны, текстуры и миниатюры на месте", () => {
+  assert.equal(new Set(MATERIALS.map((m) => m.id)).size, MATERIALS.length);
+  assert.ok(MATERIALS.length >= 100, "материалов " + MATERIALS.length);
+  for (const a of textureAssets(JOINT_FILLS)) for (const k of ["color", "normal", "rough", "disp"]) assert.ok(fs.existsSync(`textures/${a}/${k}.webp`), `нет textures/${a}/${k}.webp`);
+  for (const m of MATERIALS) assert.ok(fs.existsSync(`img/mat/${m.id}.webp`), "нет миниатюры " + m.id);
+  for (const f of JOINT_FILLS) assert.ok(fs.existsSync(`img/fill/${f.id}.webp`), "нет миниатюры заполнения " + f.id);
+});
+test("профили шва: 25 видов, высота конечна по всему сечению", () => {
+  assert.equal(JOINT_PROFILES.length, 25);
+  for (const p of JOINT_PROFILES) for (let X = -1; X <= 1.0001; X += 0.05) assert.ok(Number.isFinite(p.h(X, 4, 2, 0.5)), p.id);
+});
+test("пресеты: 2 вкладки, подсказки материалов есть в библиотеке", () => {
+  assert.deepEqual([...new Set(PRESETS.map((p) => p.cat))].sort(), ["brick", "paving"]);
+  const ids = new Set(MATERIALS.map((m) => m.id));
+  for (const p of PRESETS) for (const s of p.slots) assert.ok(ids.has(s), p.name + ": " + s);
+});
+for (const prof of ["weathered", "weeping", "cover_strip", "zigzag", "brass_shadow"]) test("generate: профиль " + prof + " без текстур", () => {
+  const r = generate(P0({ layout: "bond", ex: 250, ey: 120, ez: 65, joint: 12, bond: "L\nL @2", materials: [{ lib: "feldhaus" }], jointProfile: prof, jointFill: "trass" }), 256, {});
+  assert.equal(r.checks.filter((c) => c.level === "err").length, 0);
+});
+
+// 6. PNG: кодируем и декодируем обратно
 function decodePNG(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset);
   let o = 8, w = 0, h = 0, depth = 0, ct = 0;

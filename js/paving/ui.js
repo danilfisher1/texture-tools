@@ -1,15 +1,19 @@
-// Вкладка «Мощение»: настройки → воркер → WebGL-превью; экспорт Diffuse / ERM / Normal DX в PNG 24 bit.
+// Вкладка «Мощение»: узор + материалы + шов → воркер → WebGL-превью; экспорт Diffuse / ERM / Normal DX в PNG 24 bit.
 import { DEFAULTS, LAYOUTS, DECORS } from "./gen.js";
 import { Viewer, VIEW_MODES } from "./view.js";
-import { PRESETS, PRESET_TABS } from "./presets.js";
+import { PRESETS, PRESET_TABS, PATTERN_KEYS } from "./presets.js";
+import { MATERIALS, MAT_CATS, MAT_BY_ID } from "./materials.js";
+import { JOINT_FILLS, FILL_BY_ID, JOINT_PROFILES, PROFILE_GROUPS, PROFILE_BY_ID, profileSVG } from "./joints.js";
 
-const STORE_KEY = "texture-tools.paving.v1";
+const STORE_KEY = "texture-tools.paving.v2";
 const SIDE_KEY = "texture-tools.paving.side";
 const TAB_KEY = "texture-tools.paving.ptab";
-const THUMB_KEY = "texture-tools.paving.thumbs.v2"; // сменить версию, если меняется вид генерации
+const MCAT_KEY = "texture-tools.paving.mcat";
+const THUMB_KEY = "texture-tools.paving.thumbs.v3"; // сменить версию, если меняется вид узоров
 const THUMB_PX = 160;
-const UI_DEFAULTS = { previewRes: 1024, exportRes: 2048, base: "T_Paving", udim: 1001, suffix: "_1", exportHeight: false, presetName: "" };
+const UI_DEFAULTS = { previewRes: 1024, exportRes: 2048, base: "T_Paving", udim: 1001, suffix: "_1", exportHeight: false, presetName: "", presetCat: "" };
 const MAX_MAT = 9;
+const clone = (v) => JSON.parse(JSON.stringify(v));
 
 // подписи размеров и счётчиков под каждую раскладку
 const LUI = {
@@ -39,12 +43,6 @@ const CNT = {
 const lui = (p) => LUI[p.layout] || LUI.stack;
 
 // ───────── состояние ─────────
-function fresh(preset) {
-  const p = JSON.parse(JSON.stringify(Object.assign({}, DEFAULTS, UI_DEFAULTS, preset ? preset.p : {})));
-  p.paint = null;
-  p.presetName = preset ? preset.name : "";
-  return p;
-}
 function store(key, val) {
   try {
     if (val === undefined) return localStorage.getItem(key);
@@ -52,9 +50,41 @@ function store(key, val) {
   } catch (e) { /* приватный режим, нет места */ }
   return null;
 }
+function base() { return clone(Object.assign({}, DEFAULTS, UI_DEFAULTS)); }
+
+// узор из пресета: геометрия заменяется, материалы и шов пользователя сохраняются (full — взять и их из подсказки)
+function applyPatternTo(P0, pr, full) {
+  const P1 = base();
+  for (const k of ["previewRes", "exportRes", "udim", "suffix", "exportHeight", "seed", "size", "jointFill", "jointColor", "jointProfile", "jointDepth", "jointRough", "normalStrength", "ao", "grain", "mottle", "speck", "speckContrast", "edgeDark"]) if (P0 && k in P0) P1[k] = clone(P0[k]);
+  for (const k of PATTERN_KEYS) P1[k] = clone(k in pr.p ? pr.p[k] : DEFAULTS[k]);
+  const pm = pr.p.materials || [{}];
+  const need = P1.colorMode === "single" ? 1 : pm.length;
+  const old = full || !P0 ? [] : P0.materials || [];
+  P1.materials = [];
+  for (let i = 0; i < Math.max(need, Math.min(old.length, MAX_MAT)); i++) {
+    const keep = old[i] ? clone(old[i]) : null;
+    const sl = keep && keep.lib ? keep : { lib: pr.slots[i] || pr.slots[pr.slots.length - 1] || (old[old.length - 1] || {}).lib || "profi_grey" };
+    const src = pm[i] || {};
+    // узоро-зависимые свойства слота: доля в смеси, выступ, наклон, декор
+    sl.weight = src.weight || sl.weight || 1;
+    sl.raise = src.raise || 0; sl.slope = src.slope || 0;
+    sl.decor = src.decor || "none"; if (src.decorColor) sl.decorColor = src.decorColor;
+    P1.materials.push(sl);
+  }
+  // шов: при смене категории (мощение ↔ кирпич) или по запросу — подсказка узора
+  if (pr.j && (full || !P0 || P0.presetCat !== pr.cat)) {
+    const f = FILL_BY_ID[pr.j.fill];
+    P1.jointFill = pr.j.fill; P1.jointProfile = pr.j.profile; P1.jointDepth = pr.j.depth;
+    if (f) { P1.jointColor = f.colors[0][1]; P1.jointRough = f.r; }
+  }
+  P1.presetName = pr.name; P1.presetCat = pr.cat;
+  P1.base = "T_" + pr.name.replace(/^[\d.]+\s*/, "").replace(/[«»"(),]/g, "").trim().split(/\s+/).slice(0, 3).join("_");
+  P1.paint = null;
+  return P1;
+}
 function load() {
   const s = store(STORE_KEY);
-  if (s) { try { return Object.assign(fresh(), JSON.parse(s)); } catch (e) { /* битый JSON */ } }
+  if (s) { try { return Object.assign(base(), JSON.parse(s)); } catch (e) { /* битый JSON */ } }
   return null;
 }
 let saveT = 0;
@@ -63,9 +93,10 @@ function save() {
   saveT = setTimeout(() => store(STORE_KEY, JSON.stringify(P)), 300);
 }
 
-let P = load() || fresh(PRESETS[0]);
+let P = load() || applyPatternTo(null, PRESETS[0], true);
 let last = null;          // последний результат превью
 let paintOn = false, paintMat = 2, paintPref = 2; // paintPref — выбор пользователя, paintMat — с учётом числа материалов
+let activeSlot = 0;
 const setStatus = (msg) => { const s = document.getElementById("status"); if (s) s.textContent = msg; };
 
 // ───────── DOM-хелперы ─────────
@@ -74,6 +105,7 @@ function h(tag, attrs, ...kids) {
   for (const k in attrs || {}) {
     const v = attrs[k];
     if (k === "class") e.className = v;
+    else if (k === "html") e.innerHTML = v;
     else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
     else if (v === true) e.setAttribute(k, "");
     else if (v !== false && v != null) e.setAttribute(k, v);
@@ -89,15 +121,15 @@ function row(label, kids, show) {
   if (show) shows.push([r, show]);
   return r;
 }
-function group(title, kids, show) {
-  const g = h("div", { class: "group" }, h("div", { class: "group-title" }, title), kids);
+function group(title, kids, show, cls) {
+  const g = h("div", { class: "group " + (cls || "") }, h("div", { class: "group-title" }, title), kids);
   if (show) shows.push([g, show]);
   return g;
 }
 function updateShows() {
   for (let i = shows.length - 1; i >= 0; i--) {
     const [e, f] = shows[i];
-    if (!e.isConnected && e.dataset.built) { shows.splice(i, 1); continue; } // старые строки материалов
+    if (!e.isConnected && e.dataset.built) { shows.splice(i, 1); continue; } // старые строки слотов
     e.dataset.built = "1";
     e.style.display = f(P) ? "" : "none";
   }
@@ -152,18 +184,9 @@ function checkIn(key, text) {
   controls.push([key, (v) => (c.checked = !!v)]);
   return h("label", { class: "pv-check" }, c, text);
 }
-function colorIn(key) {
-  const c = h("input", { type: "color", class: "pv-color" });
-  c.value = P[key];
-  c.addEventListener("input", () => changed(key, c.value, 250));
-  controls.push([key, (v) => (c.value = v)]);
-  return c;
-}
 function syncControls() {
   for (const [k, set] of controls) set(P[k]);
-  buildMaterials();
-  updateShows();
-  markPreset();
+  buildSlots(); buildJoint(); updateShows(); markPreset();
 }
 
 // ───────── разметка ─────────
@@ -174,20 +197,19 @@ const canvas = h("canvas", { class: "pv-canvas" });
 const busy = h("div", { class: "pv-busy" });
 const checksBox = h("div", { class: "pv-checks" });
 const fitBox = h("div", { class: "pv-fit" });
-const matBox = h("div", { class: "pv-mats" });
 const paintSel = h("select", { class: "sel" });
 const paintInfo = h("span", { class: "hint" });
 const namesBox = h("div", { class: "hint name-hint pv-names" });
 const exportMsg = h("span", { class: "hint" });
 const rulesErr = h("div", { class: "pv-err" });
-
 const isRows = (p) => p.layout === "stack" || p.layout === "running";
 
-// ───────── галерея пресетов ─────────
+// ───────── галерея узоров (нейтральные миниатюры) ─────────
 const gallery = h("div", { class: "pv-gallery" });
 const presetTabs = h("div", { class: "pv-ptabs" });
 let presetTab = store(TAB_KEY) || (PRESETS.find((p) => p.name === P.presetName) || PRESETS[0]).cat;
-const cards = new Map(); // имя пресета → { card, img }
+if (!PRESET_TABS.some(([id]) => id === presetTab)) presetTab = PRESET_TABS[0][0];
+const cards = new Map();
 function buildGallery() {
   presetTabs.textContent = "";
   for (const [id, title] of PRESET_TABS) {
@@ -199,8 +221,9 @@ function buildGallery() {
     let c = cards.get(pr.name);
     if (!c) {
       const img = h("img", { class: "pv-thumb", alt: "", draggable: "false" });
-      const card = h("button", { class: "pv-card", title: pr.name + ` (миниатюра ${(pr.thumb || 1000) / 1000} × ${(pr.thumb || 1000) / 1000} м)`, onclick: () => applyPreset(pr) },
-        h("div", { class: "pv-thumb-box" }, img, h("span", { class: "pv-thumb-m" }, `${(pr.thumb || 1000) / 1000} м`)), h("span", { class: "pv-card-name" }, pr.name));
+      const m = (pr.thumb || 1000) / 1000;
+      const card = h("button", { class: "pv-card", title: pr.name + ` (миниатюра ${m} × ${m} м)`, onclick: () => applyPreset(pr) },
+        h("div", { class: "pv-thumb-box" }, img, h("span", { class: "pv-thumb-m" }, `${m} м`)), h("span", { class: "pv-card-name" }, pr.name));
       c = { card, img };
       cards.set(pr.name, c);
       const cached = thumbCache[thumbKey(pr)];
@@ -211,21 +234,19 @@ function buildGallery() {
   markPreset();
   queueThumbs();
 }
-function markPreset() {
-  for (const [name, c] of cards) c.card.classList.toggle("active", name === P.presetName);
-}
-function applyPreset(pr) {
-  const keep = { previewRes: P.previewRes, exportRes: P.exportRes, udim: P.udim, suffix: P.suffix, exportHeight: P.exportHeight };
-  P = Object.assign(fresh(pr), keep);
+function markPreset() { for (const [name, c] of cards) c.card.classList.toggle("active", name === P.presetName); }
+function applyPreset(pr, full) {
+  P = applyPatternTo(P, pr, full);
+  activeSlot = Math.min(activeSlot, P.materials.length - 1);
   save(); syncControls(); schedule(0);
-  setStatus("Мощение: пресет «" + pr.name + "»");
+  setStatus("Мощение: узор «" + pr.name + "»" + (full ? " с материалами и швом" : ""));
 }
 
-// миниатюры: отдельный воркер, раскладка на плоскости 1 × 1 м (или thumb), кэш в localStorage
+// миниатюры узоров: отдельный воркер, плоскость 1 × 1 м (или thumb), кэш в localStorage
 let thumbCache = {};
 try { thumbCache = JSON.parse(store(THUMB_KEY) || "{}"); } catch (e) { thumbCache = {}; }
 function thumbKey(pr) {
-  const s = JSON.stringify([pr.p, pr.thumb || 1000, THUMB_PX]);
+  const s = JSON.stringify([pr.p, pr.thumb || 1000, THUMB_PX, pr.j]);
   let x = 2166136261;
   for (let i = 0; i < s.length; i++) x = Math.imul(x ^ s.charCodeAt(i), 16777619);
   return (x >>> 0).toString(36);
@@ -261,7 +282,7 @@ function pumpThumbs() {
   }
   const pr = thumbQueue.shift();
   thumbBusy = true;
-  thumbWorker.postMessage({ job: 0, mode: "thumb", preset: { name: pr.name, p: pr.p, thumb: pr.thumb }, N: THUMB_PX, key: thumbKey(pr) });
+  thumbWorker.postMessage({ job: 0, mode: "thumb", preset: { name: pr.name, p: pr.p, thumb: pr.thumb, cat: pr.cat, j: pr.j }, N: THUMB_PX, key: thumbKey(pr) });
 }
 
 // файл настроек
@@ -269,10 +290,109 @@ const fileIn = h("input", { type: "file", accept: ".json,application/json", styl
 fileIn.addEventListener("change", async () => {
   const f = fileIn.files[0];
   if (!f) return;
-  try { P = Object.assign(fresh(), JSON.parse(await f.text())); save(); syncControls(); schedule(0); setStatus("Настройки загружены: " + f.name); }
+  try { P = Object.assign(base(), JSON.parse(await f.text())); save(); syncControls(); schedule(0); setStatus("Настройки загружены: " + f.name); }
   catch (e) { alert("Не удалось прочитать JSON: " + e.message); }
   fileIn.value = "";
 });
+
+// ───────── материалы: слоты + галерея библиотеки ─────────
+const slotsBox = h("div", { class: "pv-slots" });
+const matTabs = h("div", { class: "pv-ptabs pv-mtabs" });
+const matGallery = h("div", { class: "pv-gallery pv-mgallery" });
+const matDesc = h("div", { class: "hint pv-desc" });
+let matCat = store(MCAT_KEY) || "granite";
+const thumbImg = (src, color) => {
+  const box = h("div", { class: "pv-thumb-box", style: `background:${color || "#555"}` });
+  if (src) {
+    const img = h("img", { class: "pv-thumb", src, alt: "", draggable: "false", loading: "lazy" });
+    img.addEventListener("error", () => img.remove(), { once: true });
+    box.append(img);
+  }
+  return box;
+};
+function slotName(sm) { const lib = sm && sm.lib && MAT_BY_ID[sm.lib]; return lib ? lib.name : "свой цвет " + ((sm && sm.color) || ""); }
+function buildSlots() {
+  slotsBox.textContent = "";
+  P.materials.forEach((sm, i) => {
+    const lib = sm.lib && MAT_BY_ID[sm.lib];
+    const wIn = h("input", { type: "number", class: "num", min: 0, max: 100, step: 0.5, value: sm.weight || 1, title: "доля в смеси", style: "width:40px" });
+    wIn.addEventListener("click", (e) => e.stopPropagation());
+    wIn.addEventListener("input", () => { if (wIn.value !== "" && Number.isFinite(+wIn.value)) { sm.weight = +wIn.value; save(); schedule(); } });
+    const wBox = h("span", { class: "pv-weight" }, "доля", wIn);
+    shows.push([wBox, (p) => p.colorMode === "mix"]);
+    slotsBox.append(h("div", { class: "pv-slot" + (i === activeSlot ? " active" : ""), title: lib ? lib.desc : "", onclick: () => { activeSlot = i; buildSlots(); } },
+      h("b", {}, i + 1),
+      thumbImg(lib ? `img/mat/${lib.id}.webp` : "", lib ? lib.color : sm.color),
+      h("span", { class: "pv-slot-name" }, slotName(sm)), wBox,
+      P.materials.length > 1 ? h("button", { class: "btn pv-x", title: "удалить слот", onclick: (e) => { e.stopPropagation(); P.materials.splice(i, 1); activeSlot = Math.min(activeSlot, P.materials.length - 1); P.paint = null; save(); buildSlots(); schedule(0); } }, "✕") : null));
+  });
+  const cur = P.materials[activeSlot] && MAT_BY_ID[P.materials[activeSlot].lib];
+  matDesc.textContent = cur ? `Слот ${activeSlot + 1}: ${cur.name} — ${cur.desc}` : `Слот ${activeSlot + 1}: выберите материал ниже`;
+  paintSel.textContent = "";
+  P.materials.forEach((m, i) => paintSel.append(h("option", { value: i + 1 }, i + 1 + ". " + slotName(m))));
+  paintMat = Math.min(paintPref, P.materials.length);
+  paintSel.value = paintMat;
+  buildMatGallery();
+  buildSlotTuning();
+  updateShows();
+}
+function buildMatGallery() {
+  matTabs.textContent = "";
+  for (const [id, title] of MAT_CATS) matTabs.append(h("button", { class: "btn pv-ptab" + (id === matCat ? " active" : ""), onclick: () => { matCat = id; store(MCAT_KEY, id); buildMatGallery(); } }, title));
+  matGallery.textContent = "";
+  const cur = P.materials[activeSlot] && P.materials[activeSlot].lib;
+  for (const mt of MATERIALS.filter((x) => x.cat === matCat)) {
+    matGallery.append(h("button", { class: "pv-card" + (mt.id === cur ? " active" : ""), title: mt.name + " — " + mt.desc, onclick: () => assignMaterial(mt) },
+      thumbImg(`img/mat/${mt.id}.webp`, mt.color), h("span", { class: "pv-card-name" }, mt.name)));
+  }
+}
+function assignMaterial(mt) {
+  const sm = P.materials[activeSlot] || (P.materials[activeSlot] = {});
+  for (const k of ["color", "rough", "metal", "vary", "roughAdj"]) delete sm[k];
+  sm.lib = mt.id;
+  save(); buildSlots(); schedule(0);
+  setStatus(`Мощение: слот ${activeSlot + 1} — ${mt.name} (текстура загружается при первом выборе)`);
+}
+
+// ───────── шов: заполнение + цвет + профиль ─────────
+const fillGallery = h("div", { class: "pv-gallery pv-fgallery" });
+const fillColors = h("div", { class: "pv-swatches" });
+const fillDesc = h("div", { class: "hint pv-desc" });
+const profBox = h("div", { class: "pv-profiles" });
+const profDesc = h("div", { class: "hint pv-desc" });
+const jointColorIn = h("input", { type: "color", class: "pv-color", title: "свой цвет" });
+jointColorIn.addEventListener("input", () => { P.jointColor = jointColorIn.value; save(); markJoint(); schedule(250); });
+function buildJoint() {
+  fillGallery.textContent = "";
+  for (const f of JOINT_FILLS) {
+    fillGallery.append(h("button", { class: "pv-card" + (f.id === P.jointFill ? " active" : ""), title: f.name + " — " + f.desc, onclick: () => {
+      P.jointFill = f.id; P.jointColor = f.colors[0][1]; P.jointRough = f.r;
+      save(); buildJoint(); schedule(0);
+    } }, thumbImg(`img/fill/${f.id}.webp`, f.colors[0][1]), h("span", { class: "pv-card-name" }, f.name)));
+  }
+  profBox.textContent = "";
+  const fcol = P.jointColor;
+  for (const [gid, gname] of PROFILE_GROUPS) {
+    const grid = h("div", { class: "pv-gallery pv-pgallery" });
+    for (const p of JOINT_PROFILES.filter((x) => x.g === gid)) {
+      grid.append(h("button", { class: "pv-card" + (p.id === P.jointProfile ? " active" : ""), title: p.name + " — " + p.desc, onclick: () => { P.jointProfile = p.id; save(); buildJoint(); schedule(0); } },
+        h("div", { class: "pv-svg", html: profileSVG(p, fcol) }), h("span", { class: "pv-card-name" }, p.name)));
+    }
+    profBox.append(h("div", { class: "pv-pgroup" }, gname), grid);
+  }
+  markJoint();
+}
+function markJoint() {
+  const f = FILL_BY_ID[P.jointFill] || JOINT_FILLS[0], p = PROFILE_BY_ID[P.jointProfile] || JOINT_PROFILES[0];
+  fillColors.textContent = "";
+  for (const [name, hex] of f.colors) {
+    fillColors.append(h("button", { class: "pv-swatch" + (hex.toLowerCase() === String(P.jointColor).toLowerCase() ? " active" : ""), title: name, style: `background:${hex}`, onclick: () => { P.jointColor = hex; save(); markJoint(); schedule(0); } }));
+  }
+  jointColorIn.value = P.jointColor;
+  fillColors.append(jointColorIn);
+  fillDesc.textContent = `${f.name}: ${f.desc}`;
+  profDesc.textContent = `${p.name}: ${p.desc}`;
+}
 
 const exRow = row((p) => lui(p).ex, [numIn("ex", { min: 1, max: 5000, w: 60 }), h("span", { class: "hint" }, "мм")]);
 const eyRow = row((p) => lui(p).ey || "", [numIn("ey", { min: 1, max: 5000, w: 60 }), h("span", { class: "hint" }, "мм")], (p) => !!lui(p).ey);
@@ -288,24 +408,58 @@ const countRows = [0, 1].map((i) => row((p) => (CNT[lui(p).cnt][i] || [])[1] || 
   (() => { const s = h("span", { class: "hint" }); dyn.push([s, (p) => (CNT[lui(p).cnt][i] || [])[2] || ""]); return s; })(),
 ], (p) => !!CNT[lui(p).cnt][i]));
 
+// тонкая настройка слотов (разброс тона, roughness, emissive, выступ, наклон, декор)
+const slotTune = h("div", {});
+function buildSlotTuning() {
+  slotTune.textContent = "";
+  P.materials.forEach((sm, i) => {
+    const lib = sm.lib && MAT_BY_ID[sm.lib];
+    const upd = (k, v, d) => { sm[k] = v; save(); schedule(d); };
+    const nIn = (k, def, min, max, step, w, title) => {
+      const e = h("input", { type: "number", class: "num", min, max, step, title, style: `width:${w}px` });
+      e.value = sm[k] == null ? def : sm[k];
+      e.addEventListener("input", () => { if (e.value !== "" && Number.isFinite(+e.value)) upd(k, +e.value); });
+      return e;
+    };
+    const decor = h("select", { class: "sel", title: "рисунок на элементе (пэчворк)" }, DECORS.map(([v, t]) => h("option", { value: v }, t)));
+    decor.value = sm.decor || "none";
+    decor.addEventListener("change", () => { upd("decor", decor.value); buildSlotTuning(); });
+    const dcol = h("input", { type: "color", class: "pv-color", value: sm.decorColor || "#2f3a4a" });
+    dcol.addEventListener("input", () => upd("decorColor", dcol.value, 250));
+    slotTune.append(h("div", { class: "pv-mat" },
+      h("div", { class: "row" }, h("b", {}, i + 1), h("span", { class: "pv-slot-name" }, slotName(sm))),
+      h("div", { class: "row pv-mat2" },
+        h("span", { class: "hint", title: "разброс тона по элементам, %" }, "±"), nIn("vary", lib ? lib.vary : 4, 0, 50, 0.5, 40),
+        h("span", { class: "hint", title: "добавка к roughness" }, "R±"), nIn("roughAdj", 0, -1, 1, 0.01, 46),
+        h("span", { class: "hint", title: "emissive (оникс — по яркости камня)" }, "E"), nIn("emit", 0, 0, 1, 0.05, 40),
+        h("span", { class: "hint", title: "выступ над плоскостью, мм" }, "выступ"), nIn("raise", 0, -50, 100, 0.5, 44),
+        h("span", { class: "hint", title: "перепад по ширине элемента, мм" }, "наклон"), nIn("slope", 0, -100, 100, 0.5, 44)),
+      h("div", { class: "row pv-mat2" }, h("span", { class: "hint" }, "декор"), decor, sm.decor && sm.decor !== "none" ? dcol : null)));
+  });
+}
+
 side.append(
-  group("Пресеты", [
+  group("Узор", [
     presetTabs,
     gallery,
     row(null, [
-      h("button", { class: "btn", onclick: () => download(new Blob([JSON.stringify(P, null, 2)], { type: "application/json" }), outBase() + ".paving.json") }, "Сохранить настройки"),
-      h("button", { class: "btn", onclick: () => fileIn.click() }, "Открыть…"), fileIn,
+      h("button", { class: "btn", title: "Подставить материалы и шов, рекомендованные для этого узора", onclick: () => { const pr = PRESETS.find((x) => x.name === P.presetName); if (pr) applyPreset(pr, true); } }, "Материалы и шов из узора"),
     ]),
   ]),
-  group("Текстура", [
-    row("Плоскость", [numIn("size", { min: 100, max: 100000, step: 10, w: 70 }), h("span", { class: "hint" }, "мм × мм (квадрат)")]),
-    row("Seed", [numIn("seed", { min: 0, max: 999999 }), h("button", { class: "btn", onclick: () => { P.seed = Math.floor(Math.random() * 99999); syncControls(); save(); schedule(0); } }, "🎲")]),
-    row("Превью", [selIn("previewRes", [[512, "512 px"], [1024, "1024 px"], [2048, "2048 px"]], Number)]),
+  group("Материалы", [
+    h("div", { class: "hint pv-desc" }, "Слот = материал узора (1 — основной). Выберите слот и щёлкните материал в библиотеке."),
+    slotsBox,
+    row(null, [h("button", { class: "btn", onclick: () => { if (P.materials.length < MAX_MAT) { P.materials.push(clone(P.materials[P.materials.length - 1])); activeSlot = P.materials.length - 1; save(); buildSlots(); schedule(0); } } }, "+ слот")]),
+    matDesc, matTabs, matGallery,
+  ]),
+  group("Шов", [
+    row("Ширина", [numIn("joint", { min: 0, max: 100, step: 0.5 }), h("span", { class: "hint" }, "мм"), h("label", {}, "Глубина / выступ"), numIn("jointDepth", { min: 0, max: 40, step: 0.5 }), h("span", { class: "hint" }, "мм")]),
+    h("div", { class: "pv-sub" }, "Заполнение"), fillGallery, fillColors, fillDesc,
+    h("div", { class: "pv-sub" }, "Профиль"), profDesc, profBox,
   ]),
   group("Раскладка", [
     row("Тип", [selIn("layout", LAYOUTS.map((l) => [l.id, l.name]))]),
     exRow, eyRow, ezRow,
-    row("Шов", [numIn("joint", { min: 0, max: 100, step: 0.5 }), h("span", { class: "hint" }, "мм")]),
     row("Смещение", [selIn("offset", [["1/2", "1/2"], ["1/3", "1/3"], ["1/4", "1/4"], ["1/5", "1/5"], ["2/5", "2/5"], ["rand", "случайное"]])], (p) => p.layout === "running"),
     row("Угол", [selIn("angle", [[30, "30°"], [45, "45°"], [60, "60°"]], Number)], (p) => p.layout === "chevron"),
     row("Планок в элементе", [selIn("multi", [[1, "1 (обычная)"], [2, "2 (двойная)"], [3, "3 (тройная)"]], Number)], (p) => p.layout === "herring90" || p.layout === "herring45"),
@@ -324,18 +478,17 @@ side.append(
     row(null, [checkIn("rotate", "Повернуть на 90°")]),
     fitBox,
   ]),
-  group("Материалы", [matBox, row(null, [h("button", { class: "btn", onclick: () => addMat() }, "+ материал")])]),
   group("Раскладка цветов", [
-    row("Режим", [selIn("colorMode", [["single", "Один материал (1)"], ["mix", "Смесь по долям"], ["parts", "По частям узора / типу кирпича"], ["rules", "Правило рядов"]])]),
-    row(null, [h("div", { class: "hint pv-help" }, "часть 1 → материал 1, часть 2 → материал 2…\nкирпич: ложок 1, тычок 2, солдатик 3, на ребро 4")], (p) => p.colorMode === "parts"),
+    row("Режим", [selIn("colorMode", [["single", "Один материал (слот 1)"], ["mix", "Смесь по долям"], ["parts", "По частям узора / типу кирпича"], ["rules", "Правило рядов"]])]),
+    row(null, [h("div", { class: "hint pv-help" }, "часть 1 → слот 1, часть 2 → слот 2…\nкирпич: ложок 1, тычок 2, солдатик 3, на ребро 4")], (p) => p.colorMode === "parts"),
     row(null, [areaIn("rules", 5)], (p) => p.colorMode === "rules"),
     h("div", {}, rulesErr),
     row(null, [h("div", { class: "hint pv-help" },
       "Строка = ряд сверху вниз, строки идут циклом.\n" +
-      "-  ряд из материала 1   =2  ряд из материала 2\n" +
+      "-  ряд из слота 1   =2  ряд из слота 2\n" +
       "4 1  промежутки: 4 осн., вставка, 1 осн., вставка…\n" +
-      ":1121  явная последовательность материалов\n" +
-      "*3 материал вставки (по умолч. 2)   /1 основной\n" +
+      ":1121  явная последовательность слотов\n" +
+      "*3 слот вставки (по умолч. 2)   /1 основной\n" +
       ">-1 сдвиг каждого след. такого ряда (− влево)\n" +
       "@2 начальный сдвиг   # комментарий")], (p) => p.colorMode === "rules"),
     row(null, [checkIn("snapRows", "Подгонять число рядов под цикл правила")], (p) => p.colorMode === "rules"),
@@ -345,34 +498,12 @@ side.append(
       paintSel,
       h("button", { class: "btn", onclick: () => { P.paint = null; save(); schedule(0); } }, "Сброс"),
     ]),
-    row(null, [h("span", { class: "hint" }, "ЛКМ по элементу — материал кисти, ПКМ — вернуть как было"), paintInfo]),
+    row(null, [h("span", { class: "hint" }, "ЛКМ по элементу — слот кисти, ПКМ — вернуть как было"), paintInfo]),
   ]),
-  group("Кромка", [
-    row("Фаска", [...rangeIn("chamfer", 0, 20, 0.5), "мм"]),
-    row("Профиль", [selIn("profile", [["round", "радиус"], ["flat", "45°"]])]),
-    row("Скругл. углов", [...rangeIn("corner", 0, 60, 0.5), "мм"]),
-    row("Неровн. граней", [...rangeIn("irregular", 0, 30, 0.5), "мм"]),
-    row("Сколы", [...rangeIn("chip", 0, 15, 0.25), "мм"]),
-  ]),
-  group("Поверхность", [
-    row("Рельеф", [...rangeIn("relief", 0, 10, 0.05), "мм"]),
-    row("Масштаб рельефа", [...rangeIn("reliefScale", 1, 200, 1), "мм"]),
-    row("Наклон", [...rangeIn("tilt", 0, 10, 0.1), "мм"]),
-    row("Перепад", [...rangeIn("lift", 0, 10, 0.1), "мм"]),
-    row("Зерно", [...rangeIn("grain", 0, 30, 0.5), "%"]),
-    row("Пятна", [...rangeIn("mottle", 0, 30, 0.5), "%"]),
-    row("Крапины", [...rangeIn("speck", 0, 100, 1)]),
-    row("Контраст крапин", [...rangeIn("speckContrast", 0, 100, 1), "%"]),
-    row("Темнее у кромки", [...rangeIn("edgeDark", 0, 50, 1), "%"]),
-  ]),
-  group("Шов", [
-    row("Цвет", [colorIn("jointColor")]),
-    row("Глубина", [...rangeIn("jointDepth", 0, 40, 0.5), "мм"]),
-    row("Roughness", [...rangeIn("jointRough", 0, 1, 0.01)]),
-  ]),
-  group("Карты", [
-    row("Сила нормали", [...rangeIn("normalStrength", 0, 5, 0.05)]),
-    row("AO в Diffuse", [...rangeIn("ao", 0, 100, 1), "%"]),
+  group("Текстура", [
+    row("Плоскость", [numIn("size", { min: 100, max: 100000, step: 10, w: 70 }), h("span", { class: "hint" }, "мм × мм (квадрат)")]),
+    row("Seed", [numIn("seed", { min: 0, max: 999999 }), h("button", { class: "btn", onclick: () => { P.seed = Math.floor(Math.random() * 99999); syncControls(); save(); schedule(0); } }, "🎲")]),
+    row("Превью", [selIn("previewRes", [[512, "512 px"], [1024, "1024 px"], [2048, "2048 px"]], Number)]),
   ]),
   group("Экспорт (PNG 24 bit)", [
     row("Размер", [selIn("exportRes", [[2048, "2048 × 2048"], [4096, "4096 × 4096"]], Number)]),
@@ -387,7 +518,36 @@ side.append(
       h("button", { class: "btn", onclick: () => doExport("Normal") }, "Normal"),
     ]),
     row(null, [exportMsg]),
+    row(null, [
+      h("button", { class: "btn", onclick: () => download(new Blob([JSON.stringify(P, null, 2)], { type: "application/json" }), outBase() + ".paving.json") }, "Сохранить настройки"),
+      h("button", { class: "btn", onclick: () => fileIn.click() }, "Открыть…"), fileIn,
+    ]),
   ]),
+  h("details", { class: "group pv-details" },
+    h("summary", { class: "group-title" }, "Тонкая настройка (кромка, поверхность, карты, слоты)"),
+    h("div", { class: "pv-sub" }, "Кромка"),
+    row("Фаска", [...rangeIn("chamfer", 0, 20, 0.5), "мм"]),
+    row("Профиль", [selIn("profile", [["round", "радиус"], ["flat", "45°"]])]),
+    row("Скругл. углов", [...rangeIn("corner", 0, 60, 0.5), "мм"]),
+    row("Неровн. граней", [...rangeIn("irregular", 0, 30, 0.5), "мм"]),
+    row("Сколы", [...rangeIn("chip", 0, 15, 0.25), "мм"]),
+    h("div", { class: "pv-sub" }, "Укладка и поверхность"),
+    row("Наклон элементов", [...rangeIn("tilt", 0, 10, 0.1), "мм"]),
+    row("Перепад высоты", [...rangeIn("lift", 0, 10, 0.1), "мм"]),
+    row("Рельеф (колотый)", [...rangeIn("relief", 0, 10, 0.05), "мм"]),
+    row("Масштаб рельефа", [...rangeIn("reliefScale", 1, 200, 1), "мм"]),
+    row("Темнее у кромки", [...rangeIn("edgeDark", 0, 50, 1), "%"]),
+    row("Зерно (доп.)", [...rangeIn("grain", 0, 30, 0.5), "%"]),
+    row("Пятна (доп.)", [...rangeIn("mottle", 0, 30, 0.5), "%"]),
+    row("Крапины (свой цвет)", [...rangeIn("speck", 0, 100, 1)]),
+    row("Контраст крапин", [...rangeIn("speckContrast", 0, 100, 1), "%"]),
+    h("div", { class: "pv-sub" }, "Шов и карты"),
+    row("Roughness шва", [...rangeIn("jointRough", 0, 1, 0.01)]),
+    row("Сила нормали", [...rangeIn("normalStrength", 0, 5, 0.05)]),
+    row("AO в Diffuse", [...rangeIn("ao", 0, 100, 1), "%"]),
+    h("div", { class: "pv-sub" }, "Слоты"),
+    slotTune,
+  ),
 );
 
 // панель превью
@@ -434,59 +594,7 @@ function setSideWidth(w) {
   split.addEventListener("pointercancel", end);
   split.addEventListener("dblclick", () => { side.style.width = ""; store(SIDE_KEY, ""); });
 }
-
-// ───────── материалы ─────────
-function buildMaterials() {
-  matBox.textContent = "";
-  P.materials.forEach((m, i) => {
-    const upd = (k, v, d) => { m[k] = v; save(); schedule(d); };
-    const color = (k) => {
-      const c = h("input", { type: "color", class: "pv-color", value: m[k] || "#2f3a4a" });
-      c.addEventListener("input", () => upd(k, c.value, 250));
-      return c;
-    };
-    const nIn = (k, min, max, step, w, title) => {
-      const e = h("input", { type: "number", class: "num", min, max, step, title, style: `width:${w}px` });
-      e.value = m[k] == null ? 0 : m[k];
-      e.addEventListener("input", () => { if (e.value !== "" && Number.isFinite(+e.value)) upd(k, +e.value); });
-      return e;
-    };
-    const metal = h("input", { type: "checkbox", title: "металл (B = 1)" });
-    metal.checked = m.metal >= 0.5;
-    metal.addEventListener("change", () => upd("metal", metal.checked ? 1 : 0));
-    const weight = h("span", { class: "pv-weight" }, "доля", nIn("weight", 0, 100, 0.5, 40, "доля в смеси"));
-    shows.push([weight, (p) => p.colorMode === "mix"]);
-    const decor = h("select", { class: "sel", title: "рисунок на элементе (пэчворк)" }, DECORS.map(([v, t]) => h("option", { value: v }, t)));
-    decor.value = m.decor || "none";
-    decor.addEventListener("change", () => { upd("decor", decor.value); buildMaterials(); });
-    matBox.append(h("div", { class: "pv-mat" },
-      h("div", { class: "row" },
-        h("b", {}, i + 1), color("color"),
-        h("span", { class: "hint" }, "±"), nIn("vary", 0, 50, 0.5, 38, "вариация тона по элементам, %"),
-        h("span", { class: "hint" }, "R"), nIn("rough", 0, 1, 0.01, 44, "roughness"),
-        h("span", { class: "hint" }, "E"), nIn("emit", 0, 1, 0.05, 38, "emissive"),
-        h("label", { class: "pv-check", title: "metallic 0/1" }, metal, "M"),
-        weight,
-        P.materials.length > 1 ? h("button", { class: "btn pv-x", title: "удалить", onclick: () => { P.materials.splice(i, 1); P.paint = null; save(); buildMaterials(); schedule(0); } }, "✕") : null),
-      h("div", { class: "row pv-mat2" },
-        h("span", { class: "hint", title: "выступ над плоскостью, мм (рельефная кладка)" }, "выступ"), nIn("raise", -50, 100, 0.5, 44, "выступ, мм"),
-        h("span", { class: "hint", title: "перепад по ширине элемента, мм (наклонный кирпич)" }, "наклон"), nIn("slope", -100, 100, 0.5, 44, "наклон, мм"),
-        h("span", { class: "hint" }, "декор"), decor, m.decor && m.decor !== "none" ? color("decorColor") : null),
-    ));
-  });
-  paintSel.textContent = "";
-  P.materials.forEach((m, i) => paintSel.append(h("option", { value: i + 1 }, "материал " + (i + 1))));
-  paintMat = Math.min(paintPref, P.materials.length);
-  paintSel.value = paintMat;
-  updateShows();
-}
 paintSel.addEventListener("change", () => (paintMat = paintPref = +paintSel.value));
-function addMat() {
-  if (P.materials.length >= MAX_MAT) return;
-  const lastM = P.materials[P.materials.length - 1];
-  P.materials.push(Object.assign({}, lastM, { color: "#b0aea8", raise: 0, slope: 0, decor: "none" }));
-  save(); buildMaterials(); schedule(0);
-}
 
 // ───────── имена файлов ─────────
 function outBase() {
@@ -503,7 +611,7 @@ function updateNames() {
 const viewer = new Viewer(canvas);
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 let job = 0, running = false, pending = false, timer = 0;
-function snapshot() { return JSON.parse(JSON.stringify(P)); }
+function snapshot() { return clone(P); }
 function schedule(delay) {
   clearTimeout(timer);
   timer = setTimeout(runPreview, delay == null ? 120 : delay);
@@ -546,7 +654,7 @@ function renderChecks(list) {
 let exportWorker = null, exportCache = null;
 function exportKey() {
   const p = snapshot();
-  for (const k of ["previewRes", "base", "udim", "suffix", "presetName"]) delete p[k];
+  for (const k of ["previewRes", "base", "udim", "suffix", "presetName", "presetCat"]) delete p[k];
   return JSON.stringify(p);
 }
 function runExport() {
@@ -641,7 +749,8 @@ new ResizeObserver(() => viewer.resize()).observe(canvasWrap);
 
 modeBtns[0].classList.add("active");
 repBtns[1].classList.add("active");
-buildMaterials();
+buildSlots();
+buildJoint();
 buildGallery();
 updateShows();
 updateNames();

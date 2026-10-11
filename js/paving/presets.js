@@ -4,12 +4,12 @@
 const M = (color, vary, rough, weight, extra) =>
   Object.assign({ color, vary, rough, metal: 0, emit: 0, weight: weight || 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" }, extra);
 
-export const PRESET_TABS = [["paving", "Мощение"], ["tile", "Плитка"], ["brick", "Кирпич"]];
+export const PRESET_TABS = [["paving", "Мощение"], ["brick", "Кирпич"]];
 
 // ───────── мощение: материалы покрытия по легенде листа ─────────
 const PAVING = [
   {
-    name: "Плитка Тип 1 «Профи» 300×100, серый + белые вставки",
+    name: "Плитка Тип 1 «Профи» 300×100, белые вставки",
     p: {
       layout: "running", offset: "1/2", ex: 100, ey: 300, joint: 3, countX: 40, countY: 16, jitter: 0,
       chamfer: 2, profile: "round", corner: 0, irregular: 0, chip: 0, relief: 0.15, reliefScale: 6, tilt: 0.3, lift: 0.2,
@@ -20,7 +20,7 @@ const PAVING = [
     },
   },
   {
-    name: "Плитка Тип 2 «Профи» 300×100, светло-серый",
+    name: "Плитка Тип 2 «Профи» 300×100",
     p: {
       layout: "running", offset: "1/2", ex: 100, ey: 300, joint: 3, countX: 0, countY: 0, chamfer: 2, profile: "round",
       relief: 0.15, reliefScale: 6, tilt: 0.3, lift: 0.2, grain: 3.5, mottle: 1.2, speck: 8, speckContrast: 15, edgeDark: 10,
@@ -28,7 +28,7 @@ const PAVING = [
     },
   },
   {
-    name: "Брусчатка колотая, гранит красный 100×100",
+    name: "Брусчатка колотая 100×100",
     p: {
       layout: "running", offset: "rand", ex: 100, ey: 100, joint: 7, countX: 36, countY: 36, jitter: 14,
       chamfer: 5, profile: "round", corner: 6, irregular: 3, chip: 1.5, relief: 2.2, reliefScale: 14, tilt: 3, lift: 1.5,
@@ -37,7 +37,7 @@ const PAVING = [
     },
   },
   {
-    name: "Бетонные плиты 600×300, светло-серый", thumb: 2000,
+    name: "Бетонные плиты 600×300", thumb: 2000,
     p: {
       layout: "running", offset: "1/2", ex: 600, ey: 300, joint: 4, countX: 0, countY: 0, chamfer: 3, profile: "round",
       relief: 0.2, reliefScale: 10, tilt: 0.8, lift: 0.5, grain: 3.5, mottle: 1.5, speck: 10, speckContrast: 15, edgeDark: 10,
@@ -45,7 +45,7 @@ const PAVING = [
     },
   },
   {
-    name: "Плитняк серый, нерегулярный", thumb: 2000,
+    name: "Плитняк нерегулярный", thumb: 2000,
     p: {
       layout: "voronoi", ex: 450, joint: 18, countX: 0, jitter: 90, relax: 2, chamfer: 8, profile: "round", corner: 20,
       irregular: 10, chip: 5, relief: 3, reliefScale: 40, tilt: 4, lift: 3, grain: 5, mottle: 4, speck: 20, speckContrast: 20,
@@ -53,7 +53,7 @@ const PAVING = [
     },
   },
   {
-    name: "Ёлочка 45°, 200×100, смесь двух серых",
+    name: "Ёлочка 45° 200×100, два тона",
     p: {
       layout: "herring45", ex: 200, ey: 100, joint: 3, countX: 0, countY: 0, chamfer: 2, profile: "round", relief: 0.15, tilt: 0.4,
       lift: 0.3, grain: 3.5, mottle: 1.2, speck: 8, edgeDark: 12, jointColor: "#4d4a45", jointDepth: 4, ao: 55,
@@ -61,7 +61,7 @@ const PAVING = [
     },
   },
   {
-    name: "Ёлочка 90°, клинкер 200×100",
+    name: "Ёлочка 90° 200×100",
     p: {
       layout: "herring90", ex: 200, ey: 100, joint: 6, countX: 0, chamfer: 1.5, profile: "round", relief: 0.4, reliefScale: 4,
       tilt: 0.6, lift: 0.4, grain: 5, mottle: 2.5, speck: 15, speckContrast: 25, edgeDark: 15, jointColor: "#6b665d", jointDepth: 5, ao: 60,
@@ -93,7 +93,7 @@ const T = (o) => Object.assign({
   jointColor: "#9e9a92", jointDepth: 1.5, jointRough: 0.9, ao: 35, colorMode: "single",
 }, o);
 const TILE = [
-  { name: "1. Прямая (шов в шов), керамогранит 600×600", thumb: 2000, p: T({ layout: "stack", ex: 600, ey: 600, joint: 3, materials: [M("#c9c1b2", 3, 0.55)], base: "T_Tile_Stack_600" }) },
+  { name: "1. Прямая (шов в шов) 600×600", thumb: 2000, p: T({ layout: "stack", ex: 600, ey: 600, joint: 3, materials: [M("#c9c1b2", 3, 0.55)], base: "T_Tile_Stack_600" }) },
   { name: "2. Диагональная 300×300", p: T({ layout: "diagonal", ex: 300, ey: 300, joint: 3, materials: [M("#b7b2a8", 4, 0.6)], base: "T_Tile_Diagonal_300" }) },
   { name: "3. Вразбежку 1/2, «кабанчик» 200×100", p: T({ layout: "running", offset: "1/2", ex: 200, ey: 100, joint: 2, chamfer: 4, materials: [M("#e8e6e1", 2, 0.12)], jointColor: "#d4d1ca", edgeDark: 3, base: "T_Tile_Metro_200x100" }) },
   { name: "3. Вразбежку 1/3, планка 600×150", p: T({ layout: "running", offset: "1/3", ex: 600, ey: 150, joint: 2, materials: [M("#8a7a68", 10, 0.6)], mottle: 3, base: "T_Tile_Plank_1_3" }) },
@@ -150,7 +150,7 @@ const BRICK = [
   { name: "4. Английская (блочная)", p: B({ bond: "L\nT @1", materials: REDH, colorMode: "parts", base: "T_Brick_English" }) },
   { name: "5. Фламандская", p: B({ bond: "L T\nL T @3", materials: REDH, colorMode: "parts", base: "T_Brick_Flemish" }) },
   { name: "6. Голландская", p: B({ bond: "T @1\nL T", materials: REDH, colorMode: "parts", base: "T_Brick_Dutch" }) },
-  { name: "7. Готическая (польская), тёмные тычки", p: B({ bond: "L T\nL T @3", materials: RED2, colorMode: "parts", base: "T_Brick_Gothic" }) },
+  { name: "7. Готическая (польская)", p: B({ bond: "L T\nL T @3", materials: RED2, colorMode: "parts", base: "T_Brick_Gothic" }) },
   { name: "8. Силезская", p: B({ bond: "L L T\nL L T @3", materials: RED2, colorMode: "parts", base: "T_Brick_Silesian" }) },
   { name: "9. Крестовая (английская крестовая)", p: B({ bond: "L\nT @1\nL @2\nT @1", materials: REDH, colorMode: "parts", base: "T_Brick_EnglishCross" }) },
   {
@@ -181,8 +181,61 @@ const BRICK = [
   },
 ];
 
+// подсказки к узору: материалы слотов (id библиотеки) и шов — применяются, когда слотов не хватает
+// или по кнопке «Материалы и шов из узора»; миниатюры узоров всегда нейтральные
+const J = (fill, profile, depth) => ({ fill, profile, depth });
+const SUGGEST = {
+  "Плитка Тип 1": { slots: ["profi_grey", "profi_white"], j: J("polymer_sand", "raked", 3) },
+  "Плитка Тип 2": { slots: ["profi_lightgrey"], j: J("polymer_sand", "raked", 3) },
+  "Брусчатка колотая": { slots: ["pokostovsky"], j: J("polymer_sand", "raked", 8) },
+  "Бетонные плиты 600": { slots: ["profi_lightgrey"], j: J("polymer_sand", "raked", 3) },
+  "Плитняк": { slots: ["sandstone_grey_green"], j: J("stone_mortar", "concave", 4) },
+  "Ёлочка 45° 200": { slots: ["profi_grey", "gabbro"], j: J("polymer_sand", "raked", 3) },
+  "Ёлочка 90° 200": { slots: ["gotika_klinker"], j: J("polymer_sand", "raked", 3) },
+  "Корзинка 200×100": { slots: ["steingot_melange"], j: J("polymer_sand", "raked", 3) },
+  "Шестигранник 200": { slots: ["profi_grey", "profi_lightgrey", "gabbro"], j: J("polymer_sand", "raked", 3) },
+  "1. Прямая": { slots: ["laminam"], j: J("epoxy", "flush", 0.5) },
+  "2. Диагональная": { slots: ["crema_marfil"], j: J("cement", "flush", 0.5) },
+  "3. Вразбежку 1/2": { slots: ["zellige"], j: J("cement", "flush", 0.5) },
+  "3. Вразбежку 1/3": { slots: ["cersanit_wood"], j: J("cement", "flush", 0.5) },
+  "4. Вертикальная прямая": { slots: ["zellige"], j: J("cement", "flush", 0.5) },
+  "5. Вертикальная со смещением": { slots: ["bisazza"], j: J("epoxy", "flush", 0.5) },
+  "6. Шахматная": { slots: ["nero_marquina", "carrara"], j: J("epoxy", "flush", 0.5) },
+  "7. Шахматная под углом": { slots: ["nero_marquina", "carrara"], j: J("epoxy", "flush", 0.5) },
+  "8. Классическая ёлочка": { slots: ["oak_engineered"], j: J("acrylic", "flush", 0.3) },
+  "9. Французская ёлочка (шеврон) 45": { slots: ["oak_engineered"], j: J("acrylic", "flush", 0.3) },
+  "9. Французская ёлочка (шеврон) 60": { slots: ["thermo_ash"], j: J("acrylic", "flush", 0.3) },
+  "10. Двойная": { slots: ["oak_engineered"], j: J("acrylic", "flush", 0.3) },
+  "10. Тройная": { slots: ["bamboo"], j: J("acrylic", "flush", 0.3) },
+  "11. Корзинка 2": { slots: ["crema_marfil", "emperador_dark"], j: J("cement", "flush", 0.5) },
+  "11. Корзинка 3": { slots: ["travertine_classico"], j: J("cement", "flush", 0.5) },
+  "12. Модульная сетка": { slots: ["travertine_classico"], j: J("cement", "flush", 0.8) },
+  "12. Модульная «Старый город»": { slots: ["braer_old_town", "steingot_melange"], j: J("polymer_sand", "raked", 4) },
+  "13. Ветряная": { slots: ["carrara", "nero_marquina"], j: J("epoxy", "flush", 0.5) },
+  "14. Вертушка": { slots: ["crema_marfil", "emperador_dark"], j: J("cement", "flush", 0.5) },
+  "15. Полосы": { slots: ["microcement", "basalt"], j: J("epoxy", "flush", 0.5) },
+  "16. Соты 200": { slots: ["carrara"], j: J("cement", "flush", 0.5) },
+  "16. Соты мелкие": { slots: ["nero_marquina", "carrara"], j: J("epoxy", "flush", 0.5) },
+  "17. Рыбья": { slots: ["zellige"], j: J("cement", "flush", 0.5) },
+  "18. Ромбы": { slots: ["carrara", "polotsky", "nero_marquina"], j: J("epoxy", "flush", 0.5) },
+  "19. Мозаика 20": { slots: ["bisazza"], j: J("epoxy", "flush", 0.5) },
+  "19. Мозаика нерегулярная": { slots: ["smalt"], j: J("cement", "flush", 0.5) },
+  "20. Калейдоскоп": { slots: ["winckelmans"], j: J("cement", "flush", 0.5) },
+};
+const BRICK_SLOTS = ["feldhaus", "lsr_klinker"];
+function suggest(p) {
+  for (const k in SUGGEST) if (p.name.startsWith(k)) return SUGGEST[k];
+  return p.cat === "brick" ? { slots: BRICK_SLOTS, j: J("trass", "concave", 4) } : { slots: [], j: null };
+}
+
 export const PRESETS = [
   ...PAVING.map((p) => Object.assign({ cat: "paving" }, p)),
-  ...TILE.map((p) => Object.assign({ cat: "tile" }, p)),
+  ...TILE.map((p) => Object.assign({ cat: "paving" }, p)),
   ...BRICK.map((p) => Object.assign({ cat: "brick" }, p)),
+].map((p) => Object.assign(p, suggest(p)));
+
+// параметры узора, которые переносит пресет (материалы и шов выбираются отдельно)
+export const PATTERN_KEYS = [
+  "layout", "ex", "ey", "ez", "joint", "countX", "countY", "offset", "jitter", "relax", "rotate", "snapRows", "angle", "multi", "modSizes", "bond",
+  "chamfer", "profile", "corner", "irregular", "chip", "tilt", "lift", "relief", "reliefScale", "colorMode", "rules", "noTouch",
 ];

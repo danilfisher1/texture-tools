@@ -4,6 +4,9 @@
 // шум — решётка с целым периодом на S, производные и размытие — с заворотом краёв.
 // Карты: Diffuse (sRGB), ERM (R = emissive, G = roughness, B = metallic 0/1), Normal DX (Y−), Height (мм).
 
+import { MAT_BY_ID } from "./materials.js";
+import { PROFILE_BY_ID, FILL_BY_ID } from "./joints.js";
+
 const SQ2 = Math.SQRT2, SQ3 = Math.sqrt(3);
 
 export const LAYOUTS = [
@@ -30,9 +33,9 @@ export const DEFAULTS = {
   offset: "1/2", jitter: 0, relax: 1, rotate: false, snapRows: true,
   ez: 65, angle: 45, multi: 1, modSizes: "2x2 2x1 1x2 1x1", bond: "L\nL @2",
   chamfer: 2, profile: "round", chip: 0, irregular: 0, corner: 0,
-  relief: 0.15, reliefScale: 6, tilt: 0.3, lift: 0.2,
-  grain: 3.5, mottle: 1.2, speck: 0, speckContrast: 30, edgeDark: 12,
-  jointColor: "#4d4a45", jointRough: 0.95, jointDepth: 4,
+  relief: 0, reliefScale: 6, tilt: 0.3, lift: 0.2,
+  grain: 0, mottle: 0, speck: 0, speckContrast: 30, edgeDark: 8,
+  jointFill: "cement", jointColor: "#bdbab3", jointProfile: "concave", jointRough: 0.92, jointDepth: 3,
   normalStrength: 1, ao: 50,
   materials: [
     { color: "#6e7070", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
@@ -714,16 +717,44 @@ function decorSD(code, u, v) {
   return -1;
 }
 
+// ───────── выборка текстур (размеры — степени двойки, заворот по маске) ─────────
+function bil1(m, u, v, c) {
+  const w = m.w, hh = m.h, d = m.data;
+  u -= 0.5; v -= 0.5;
+  const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0;
+  const xa = x0 & (w - 1), xb = (x0 + 1) & (w - 1), ya = (y0 & (hh - 1)) * w, yb = ((y0 + 1) & (hh - 1)) * w;
+  const o = c || 0, a = d[(ya + xa) * 4 + o], b = d[(ya + xb) * 4 + o], e = d[(yb + xa) * 4 + o], f = d[(yb + xb) * 4 + o];
+  return a + (b - a) * fx + (e - a) * fy + (a - b - e + f) * fx * fy;
+}
+function bil3(m, u, v, out) {
+  const w = m.w, hh = m.h, d = m.data;
+  u -= 0.5; v -= 0.5;
+  const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0;
+  const xa = x0 & (w - 1), xb = (x0 + 1) & (w - 1), ya = (y0 & (hh - 1)) * w, yb = ((y0 + 1) & (hh - 1)) * w;
+  const ia = (ya + xa) * 4, ib = (ya + xb) * 4, ie = (yb + xa) * 4, iF = (yb + xb) * 4;
+  const w0 = (1 - fx) * (1 - fy), w1 = fx * (1 - fy), w2 = (1 - fx) * fy, w3 = fx * fy;
+  for (let c = 0; c < 3; c++) out[c] = d[ia + c] * w0 + d[ib + c] * w1 + d[ie + c] * w2 + d[iF + c] * w3;
+}
+const rgbCache = new Map();
+function hexToRgbCached(h) {
+  let v = rgbCache.get(h);
+  if (!v) { v = hexToRgb(h).map((x) => x * 255); rgbCache.set(h, v); }
+  return v;
+}
+
 // ───────── растр: владелец пикселя и расстояние до края ячейки ─────────
-function rasterize(cells, N, S, P, R) {
+function rasterize(cells, N, S, P, R, zig) {
   const k = N / S;
   const best = new Float32Array(N * N).fill(-1e30);
   const id = new Int32Array(N * N);
+  const eny = new Int8Array(N * N); // y-составляющая внутренней нормали ближайшей кромки × 127 (для несимметричных профилей шва)
   const irr = Math.max(0, num(P.irregular, 0));
   const rc = Math.max(0, num(P.corner, 0)) * 1.17; // smin-ширина ≈ радиус скругления
-  const A = new Float64Array(64), B = new Float64Array(64), C = new Float64Array(64), rowC = new Float64Array(64);
-  const cx = new Float32Array(cells.length), cy = new Float32Array(cells.length);
-  const cw = new Float32Array(cells.length), chh = new Float32Array(cells.length);
+  const zA = zig ? zig.amp : 0, zP = zig ? zig.period : 1;
+  const tri = (t) => { const f = t - 0.25 - Math.floor(t - 0.25); return 2 * Math.abs(2 * f - 1) - 1; }; // нечётная «пила»: зигзаг стыка
+  const A = new Float64Array(64), B = new Float64Array(64), C = new Float64Array(64), rowC = new Float64Array(64), rowS = new Float64Array(64);
+  const nc = cells.length;
+  const cx = new Float32Array(nc), cy = new Float32Array(nc), cw = new Float32Array(nc), chh = new Float32Array(nc), cang = new Float32Array(nc);
   // ячейка из кругов (чешуя): d = min(R − |p − c| для «внутри», |p − c| − R для «снаружи»)
   function rasterTerms(T, ci, minx, maxx, miny, maxy) {
     const nt = T.length, TK = new Int8Array(nt), TX = new Float64Array(nt), TY = new Float64Array(nt), TR = new Float64Array(nt);
@@ -735,25 +766,27 @@ function rasterize(cells, N, S, P, R) {
       let wx = mod(x0, N);
       for (let px = x0; px < x1; px++) {
         const xx = (px + 0.5) / k, idx = wy + wx, cur = best[idx];
-        let d = 1e30;
+        let d = 1e30, raw = 1e30, ny = 0;
         for (let e = 0; e < nt && d > cur; e++) {
-          const r = Math.hypot(xx - TX[e], yy - TY[e]), de = TK[e] === 1 ? TR[e] - r : r - TR[e];
+          const dx = xx - TX[e], dy = yy - TY[e], r = Math.hypot(dx, dy), de = TK[e] === 1 ? TR[e] - r : r - TR[e];
+          if (de < raw) { raw = de; ny = r > 1e-9 ? (TK[e] === 1 ? -dy : dy) / r : 0; }
           if (e === 0) d = de;
           else if (rc > 0) { const h = rc - Math.abs(d - de); d = (d < de ? d : de) - (h > 0 ? (h * h) / (4 * rc) : 0); }
           else if (de < d) d = de;
         }
-        if (d > cur) { best[idx] = d; id[idx] = ci; }
+        if (d > cur) { best[idx] = d; id[idx] = ci; eny[idx] = Math.round(ny * 127); }
         if (++wx === N) wx = 0;
       }
     }
   }
-  for (let ci = 0; ci < cells.length; ci++) {
+  for (let ci = 0; ci < nc; ci++) {
     const p = cells[ci].poly, nv = p.length / 2;
-    let mx = 0, my = 0, minx = 1e30, maxx = -1e30, miny = 1e30, maxy = -1e30;
+    let mx = 0, my = 0, minx = 1e30, maxx = -1e30, miny = 1e30, maxy = -1e30, longest = 0;
     for (let v = 0; v < nv; v++) {
-      const x = p[2 * v], y = p[2 * v + 1];
+      const x = p[2 * v], y = p[2 * v + 1], v2 = (v + 1) % nv, ex = p[2 * v2] - x, ey = p[2 * v2 + 1] - y, l = ex * ex + ey * ey;
       mx += x; my += y;
       if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y;
+      if (l > longest * 1.0001) { longest = l; cang[ci] = Math.atan2(ey, ex); } // направление длинной стороны (волокна дерева)
     }
     mx /= nv; my /= nv;
     cx[ci] = mod(mx, S); cy[ci] = mod(my, S); cw[ci] = maxx - minx; chh[ci] = maxy - miny;
@@ -786,31 +819,34 @@ function rasterize(cells, N, S, P, R) {
       A[ne] = nx; B[ne] = ny; C[ne] = -(nx * x1 + ny * y1); ne++;
     }
     if (!ne) continue;
-    let x0 = Math.floor(minx * k) - 1, x1 = Math.ceil(maxx * k) + 1;
-    let y0 = Math.floor(miny * k) - 1, y1 = Math.ceil(maxy * k) + 1;
+    const pad = Math.ceil(zA * k) + 1;
+    let x0 = Math.floor(minx * k) - pad, x1 = Math.ceil(maxx * k) + pad;
+    let y0 = Math.floor(miny * k) - pad, y1 = Math.ceil(maxy * k) + pad;
     if (x1 - x0 > N) x1 = x0 + N;
     if (y1 - y0 > N) y1 = y0 + N;
     for (let py = y0; py < y1; py++) {
       const yy = (py + 0.5) / k, wy = mod(py, N) * N;
-      for (let e = 0; e < ne; e++) rowC[e] = B[e] * yy + C[e];
+      for (let e = 0; e < ne; e++) { rowC[e] = B[e] * yy + C[e]; rowS[e] = A[e] * yy; }
       let wx = mod(x0, N);
       for (let px = x0; px < x1; px++) {
         const xx = (px + 0.5) / k, idx = wy + wx;
         const cur = best[idx];
-        let d = A[0] * xx + rowC[0];
+        // зигзаг: сдвиг кромки нечётной функцией координаты вдоль неё — соседняя ячейка сдвигается так же
+        let d = A[0] * xx + rowC[0] + (zA ? zA * tri((rowS[0] - B[0] * xx) / zP) : 0), raw = d, ei = 0;
         for (let e = 1; e < ne && d > cur; e++) {
-          const de = A[e] * xx + rowC[e];
+          const de = A[e] * xx + rowC[e] + (zA ? zA * tri((rowS[e] - B[e] * xx) / zP) : 0);
+          if (de < raw) { raw = de; ei = e; }
           if (rc > 0) {
             const h = rc - Math.abs(d - de);
             d = (d < de ? d : de) - (h > 0 ? (h * h) / (4 * rc) : 0);
           } else if (de < d) d = de;
         }
-        if (d > cur) { best[idx] = d; id[idx] = ci; }
+        if (d > cur) { best[idx] = d; id[idx] = ci; eny[idx] = Math.round(B[ei] * 127); }
         if (++wx === N) wx = 0;
       }
     }
   }
-  return { best, id, cx, cy, cw, ch: chh };
+  return { best, id, eny, cx, cy, cw, ch: chh, cang };
 }
 
 // box-blur с заворотом краёв (2 прохода ≈ гаусс); вертикаль — построчно, через суммы столбцов
@@ -902,77 +938,142 @@ export function generate(Pin, N, opt) {
     }
   }
 
-  // свойства ячеек
+  // ───────── слоты материалов: библиотека + текстуры + переопределения ─────────
   const Rc = rng(P.seed * 7919 + 37);
   const Rr = rng(P.seed * 7919 + 41);
   prog("растр", 0.08);
-  const ras = rasterize(cells, N, S, P, Rr);
-  const { best, id } = ras;
+  const prof = PROFILE_BY_ID[P.jointProfile] || PROFILE_BY_ID.concave;
+  const zig = prof.zig ? { amp: Math.max(1.5, P.joint * 1.1), period: Math.max(24, P.joint * 7) } : null;
+  const ras = rasterize(cells, N, S, P, Rr, zig);
+  const { best, id, eny } = ras;
+  const TXS = opt.tex || { mats: [], fill: null };
+  const k = N / S, mmpx = S / N;
+  const levelFor = (maps, scale) => clamp(Math.floor(Math.log2(Math.max(1, (maps[0].w / scale) * mmpx))), 0, maps.length - 1);
+  const slot = mats.map((sm, i) => {
+    sm = sm || {};
+    const lib = sm.lib ? MAT_BY_ID[sm.lib] || null : null;
+    const tx = lib && lib.tex ? TXS.mats[i] || null : null;
+    const o = {
+      lib, tx, base: hexToRgb((lib && lib.color) || sm.color || "#888888"),
+      vary: clamp(num(sm.vary, lib ? lib.vary : 4), 0, 50) / 100,
+      r0: lib ? lib.r[0] : 0, r1: (lib ? lib.r[1] : num(sm.rough, 0.8)) + num(sm.roughAdj, 0),
+      metal: num(lib ? lib.metal : sm.metal, 0) >= 0.5 ? 255 : 0,
+      emit: clamp(num(sm.emit, 0), 0, 1), emitTex: !!(lib && lib.emitTex),
+      raise: num(sm.raise, 0), slope: num(sm.slope, 0),
+      decor: Math.max(0, DECORS.findIndex((d) => d[0] === sm.decor)), decRGB: hexToRgb(sm.decorColor || "#2f3a4a").map((v) => v * 255),
+      disp: lib ? lib.disp : 0, nrm: lib ? lib.nrm : 0, dir: !!(lib && lib.dir),
+      pal: lib && lib.pal ? lib.pal.map(hexToRgb) : null, pmode: lib ? lib.pmode : null,
+      fin: (lib && lib.fin) || {}, proc: lib ? lib.proc || (lib.tex ? null : "smooth") : null,
+      scale: lib ? lib.scale : 800, legacy: !lib,
+    };
+    if (tx) {
+      o.lev = levelFor(tx.color, o.scale);
+      o.C = tx.color[o.lev]; o.Nm = tx.normal[Math.min(o.lev, tx.normal.length - 1)];
+      const lg = levelFor(tx.rough, o.scale);
+      o.Rg = tx.rough[lg]; o.Dp = tx.disp[Math.min(lg, tx.disp.length - 1)];
+      o.meanLum = Math.max(0.02, tx.mean.lum);
+      o.base = tx.mean.rgb.map((v) => v / 255);
+      o.ku = o.C.w / o.scale; o.kn = o.Nm.w / o.scale; o.kr = o.Rg.w / o.scale;
+    } else if (lib && lib.tex) o.proc = "smooth"; // текстура не загрузилась — ровный средний цвет
+    return o;
+  });
+
+  // свойства ячеек
   const cr = new Float32Array(nc), cg = new Float32Array(nc), cb = new Float32Array(nc);
+  const p2 = new Float32Array(nc * 3), cPh = new Float32Array(nc);
   const cRough = new Float32Array(nc), tx = new Float32Array(nc), ty = new Float32Array(nc), lift = new Float32Array(nc);
-  const base = mats.map((m) => hexToRgb(m.color));
+  const cCos = new Float32Array(nc), cSin = new Float32Array(nc), cOx = new Float32Array(nc), cOy = new Float32Array(nc);
   for (let c = 0; c < nc; c++) {
-    const m = mat[c], v = clamp(num(mats[m].vary, 0), 0, 50) / 100;
+    const s = slot[mat[c]], v = s.vary;
     const tone = 1 + (Rc() * 2 - 1) * v;
-    cr[c] = base[m][0] * tone * (1 + (Rc() * 2 - 1) * v * 0.15);
-    cg[c] = base[m][1] * tone * (1 + (Rc() * 2 - 1) * v * 0.15);
-    cb[c] = base[m][2] * tone * (1 + (Rc() * 2 - 1) * v * 0.15);
-    cRough[c] = clamp(num(mats[m].rough, 0.8) + (Rc() * 2 - 1) * 0.03, 0, 1);
+    const tr = 1 + (Rc() * 2 - 1) * v * 0.15, tg = 1 + (Rc() * 2 - 1) * v * 0.15, tb = 1 + (Rc() * 2 - 1) * v * 0.15;
+    let col = s.base;
+    if (s.pal) {
+      col = s.pal[Math.floor(Rc() * s.pal.length)];
+      const c2 = s.pmode === "blend" ? s.pal[Math.floor(Rc() * s.pal.length)] : col;
+      p2[c * 3] = c2[0] * 255 * tone; p2[c * 3 + 1] = c2[1] * 255 * tone; p2[c * 3 + 2] = c2[2] * 255 * tone;
+      cPh[c] = Rc() * 2 - 1;
+    }
+    // текстурный материал без палитры: множитель к текстуре; иначе — цвет элемента
+    if (s.tx && !s.pal) { cr[c] = tone * tr; cg[c] = tone * tg; cb[c] = tone * tb; }
+    else { cr[c] = col[0] * 255 * tone * tr; cg[c] = col[1] * 255 * tone * tg; cb[c] = col[2] * 255 * tone * tb; }
+    cRough[c] = (Rc() * 2 - 1) * 0.03;
     tx[c] = ((Rc() * 2 - 1) * num(P.tilt, 0)) / Math.max(ras.cw[c], 1);
     ty[c] = ((Rc() * 2 - 1) * num(P.tilt, 0)) / Math.max(ras.ch[c], 1);
     lift[c] = (Rc() * 2 - 1) * num(P.lift, 0);
+    // текстура: свой случайный кусок и поворот для каждого элемента; дерево — вдоль длинной стороны
+    const phi = s.dir ? ras.cang[c] + (Rc() < 0.5 ? 0 : Math.PI) : Math.floor(Rc() * 4) * (Math.PI / 2);
+    cCos[c] = Math.cos(phi); cSin[c] = Math.sin(phi);
+    cOx[c] = Rc() * s.scale; cOy[c] = Rc() * s.scale;
   }
-  const mMetal = mats.map((m) => (num(m.metal, 0) >= 0.5 ? 255 : 0));
-  const mEmit = mats.map((m) => clamp(num(m.emit, 0), 0, 1));
-  const mRaise = mats.map((m) => num(m.raise, 0)), mSlope = mats.map((m) => num(m.slope, 0));
-  const mDecor = mats.map((m) => Math.max(0, DECORS.findIndex((d) => d[0] === m.decor)));
-  const mDecRGB = mats.map((m) => hexToRgb(m.decorColor || "#2f3a4a").map((v) => v * 255));
   const cVoid = new Uint8Array(nc), cRot = new Uint8Array(nc), cAA = new Float32Array(nc);
   const Rd = rng(P.seed * 7919 + 53);
   for (let c = 0; c < nc; c++) {
     cVoid[c] = cells[c].void ? 1 : 0;
     cRot[c] = Math.floor(Rd() * 4);
-    cAA[c] = 0.5 * Math.min(ras.cw[c], ras.ch[c]) * (N / S);
+    cAA[c] = 0.5 * Math.min(ras.cw[c], ras.ch[c]) * k;
   }
+
+  // заполнение шва
+  const fill = FILL_BY_ID[P.jointFill] || FILL_BY_ID.cement;
+  const fx = fill.tex ? TXS.fill : null;
+  const jc = hexToRgb(P.jointColor || fill.colors[0][1]), jRough = clamp(num(P.jointRough, fill.r), 0, 1);
+  const jc0 = jc[0] * 255, jc1 = jc[1] * 255, jc2 = jc[2] * 255;
+  let fC = null, fN = null, fR = null, fD = null, fku = 0, fkn = 0, fkr = 0, fMean = 1;
+  if (fx) {
+    const sE = S / Math.max(1, Math.round(S / fill.scale)); // целое число повторов на S — бесшовно
+    const lv = levelFor(fx.color, sE), lg = levelFor(fx.rough, sE);
+    fC = fx.color[lv]; fN = fx.normal[Math.min(lv, fx.normal.length - 1)]; fR = fx.rough[lg]; fD = fx.disp[Math.min(lg, fx.disp.length - 1)];
+    fku = fC.w / sE; fkn = fN.w / sE; fkr = fR.w / sE; fMean = Math.max(0.02, fx.mean.lum);
+  }
+  const jGrain = fill.grain || 0;
 
   // карты
   prog("карты", 0.3);
   T.raster = Date.now() - T.start;
-  const k = N / S, mmpx = S / N;
   const jh = P.joint / 2, ch = Math.max(0, num(P.chamfer, 0)), roundP = P.profile === "round";
-  const jd = Math.max(0, num(P.jointDepth, 4));
+  const D = Math.max(0, num(P.jointDepth, 4));
   const relief = Math.max(0, num(P.relief, 0)), relShade = 0.05 * Math.min(1, relief);
   const chipA = Math.max(0, num(P.chip, 0));
   const grainA = num(P.grain, 0) / 100, mottleA = num(P.mottle, 0) / 100, edgeDark = num(P.edgeDark, 0) / 100;
   const speck = clamp(num(P.speck, 0), 0, 100) / 100, spC = clamp(num(P.speckContrast, 0), 0, 100) / 100;
   const spThr = 2.4 - 1.5 * speck;
   const sd = (P.seed | 0) * 1013;
+  const anyFin = slot.some((s) => s.fin.specks || s.fin.sparkle), anyBlend = slot.some((s) => s.pmode === "blend"), anyGlaze = slot.some((s) => s.proc === "glaze");
   const rGrain = noiseRows(S, N, 1.2, 1, sd + 1);
   const rMottle = noiseRows(S, N, 45, 2, sd + 2);
   const rRel = relief > 0 ? noiseRows(S, N, Math.max(0.5, num(P.reliefScale, 6)), 3, sd + 3) : null;
-  const rChip = chipA > 0 ? noiseRows(S, N, 4, 2, sd + 4) : null;
-  const rSpeck = speck > 0 ? noiseRows(S, N, 1.4, 1, sd + 5) : null;
+  const rChip = chipA > 0 || prof.ov ? noiseRows(S, N, 4, 2, sd + 4) : null;
+  const rSpeck = speck > 0 || anyFin ? noiseRows(S, N, 1.4, 1, sd + 5) : null;
   const rRough = noiseRows(S, N, 6, 1, sd + 6);
-  const jc = hexToRgb(P.jointColor), jRough = clamp(num(P.jointRough, 0.95), 0, 1);
-  const jc0 = jc[0] * 255, jc1 = jc[1] * 255, jc2 = jc[2] * 255;
-  for (let c = 0; c < nc; c++) { cr[c] *= 255; cg[c] *= 255; cb[c] *= 255; }
+  const rBlend = anyBlend ? noiseRows(S, N, 140, 2, sd + 7) : null;
+  const rWob = anyGlaze ? noiseRows(S, N, 30, 2, sd + 8) : null;
+  const rSpark = anyFin ? noiseRows(S, N, 1.1, 1, sd + 9) : null;
+  const profH = (X, sgn, n) => (sgn || !prof.asym ? prof.h(sgn ? X : Math.abs(X), D, ch, n) : 0.5 * (prof.h(Math.abs(X), D, ch, n) + prof.h(-Math.abs(X), D, ch, n)));
 
   const NN = N * N;
   const diffuse = new Uint8ClampedArray(NN * 4);
   const erm = new Uint8ClampedArray(NN * 4);
-  const normal = new Uint8ClampedArray(NN * 4);
+  const normal = new Uint8ClampedArray(NN * 4); // пока: детальный уклон текстуры (x, y), потом — итоговая нормаль
   const h = new Float32Array(NN);
   const half = S / 2, cxs = ras.cx, cys = ras.cy;
   const zero = new Float32Array(N);
+  const rgb = new Float32Array(3);
   let faceCnt = 0;
   for (let py = 0; py < N; py++) {
     const y = (py + 0.5) * mmpx;
     const G = rGrain(py), Mo = rMottle(py), Ro = rRough(py);
     const Re = rRel ? rRel(py) : zero, Ch = rChip ? rChip(py) : zero, Sp = rSpeck ? rSpeck(py) : null;
+    const Bl = rBlend ? rBlend(py) : zero, Wb = rWob ? rWob(py) : zero, Sk = rSpark ? rSpark(py) : zero;
     for (let px = 0; px < N; px++) {
       const i = py * N + px, o = i * 4, x = (px + 0.5) * mmpx;
-      const c = id[i], m = mat[c];
-      let dd = best[i] - jh;
+      const c = id[i], m = mat[c], s = slot[m];
+      const g = G[px];
+      // шов: нахлёст (нащельник, «плачущий» раствор) расширяет зону шва
+      const sgn = eny[i] > 40 ? 1 : eny[i] < -40 ? -1 : 0;
+      let jhE = jh;
+      if (prof.ov) jhE += prof.cover ? prof.ov : sgn > 0 ? prof.ov * P.joint * clamp(0.35 + 0.5 * Ch[px], 0, 1.2) : 0;
+      let dd = best[i] - jhE;
       if (chipA > 0) { const q = 0.5 + 0.35 * Ch[px]; dd -= chipA * (q < 0 ? 0 : q > 1 ? 1 : q); }
       let a = dd * k + 0.5;
       a = a < 0 || cVoid[c] ? 0 : a > 1 ? 1 : a;
@@ -981,75 +1082,145 @@ export function generate(Pin, N, opt) {
       let lx = x - cxs[c], ly = y - cys[c];
       if (lx > half) lx -= S; else if (lx < -half) lx += S;
       if (ly > half) ly -= S; else if (ly < -half) ly += S;
-      const g = G[px], rel = Re[px];
-      let hF = lift[c] + tx[c] * lx + ty[c] * ly + relief * rel * (0.55 + 0.45 * t) - off + 0.02 * g + mRaise[m];
-      if (mSlope[m]) hF += (mSlope[m] * lx) / Math.max(ras.cw[c], 1);
-      const hJ = (cVoid[c] ? -3 * jd - 15 : -jd) + 0.25 * g; // пустота ажурной кладки — глубже шва
-      h[i] = hJ + (hF - hJ) * a;
-      if (a > 0.5) faceCnt++;
+      const rel = Re[px];
+      let hF = lift[c] + tx[c] * lx + ty[c] * ly + relief * rel * (0.55 + 0.45 * t) - off + 0.02 * g + s.raise;
+      if (s.slope) hF += (s.slope * lx) / Math.max(ras.cw[c], 1);
+      // профиль шва по поперечной координате X ∈ [−1, 1]
+      const Xa = clamp(best[i] / Math.max(jhE, 1e-3), 0, 1), nW = clamp(0.5 + 0.4 * Ch[px], 0, 1);
+      let hJ = profH(sgn >= 0 ? Xa : -Xa, sgn, nW);
+      // раствор выше фаски — заполняет её (шов заподлицо закрывает фаску)
+      if (a > 0 && dd < ch && !cVoid[c]) {
+        const hEdge = profH(sgn >= 0 ? 1 : -1, sgn, nW);
+        if (hEdge > hF - s.raise + 0.05 && !s.raise) { a = 0; hJ = hEdge; }
+      }
+      if (cVoid[c]) hJ = -3 * D - 15; // пустота ажурной кладки
+      hJ += 0.25 * jGrain * g;
 
-      // цвет
+      // ── лицо элемента ──
+      let r = 0, gg = 0, b = 0, rough = 0, emit = 0, dsx = 0, dsy = 0, disp = 0;
       let lum = (1 + grainA * g + mottleA * Mo[px]) * (1 - edgeDark * (1 - t)) * (1 + relShade * rel);
-      let r = cr[c], gg = cg[c], b = cb[c], rough = cRough[c] + 0.03 * Ro[px];
-      if (mDecor[m]) {
-        // декор в локальных координатах элемента [-1, 1], поворот на 90°·k своё для каждого элемента
-        let u = lx / (0.5 * Math.max(ras.cw[c], 1)), v = ly / (0.5 * Math.max(ras.ch[c], 1));
-        const rt = cRot[c];
-        if (rt === 1) { const t2 = u; u = v; v = -t2; } else if (rt === 2) { u = -u; v = -v; } else if (rt === 3) { const t2 = u; u = -v; v = t2; }
-        let da = decorSD(mDecor[m], u, v) * cAA[c] + 0.5;
-        da = da < 0 ? 0 : da > 1 ? 1 : da;
-        if (da > 0) { const dcol = mDecRGB[m]; r += (dcol[0] - r) * da; gg += (dcol[1] - gg) * da; b += (dcol[2] - b) * da; }
+      if (a > 0) {
+        if (s.tx) {
+          const cs = cCos[c], sn = cSin[c];
+          const tu = cs * lx + sn * ly + cOx[c], tv = -sn * lx + cs * ly + cOy[c];
+          bil3(s.C, tu * s.ku, tv * s.ku, rgb);
+          if (s.pal) {
+            const w = s.pmode === "blend" ? clamp(0.5 + 0.9 * Bl[px] + 0.6 * cPh[c], 0, 1) : 0;
+            const L = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 / s.meanLum;
+            r = (cr[c] + (p2[c * 3] - cr[c]) * w) * L; gg = (cg[c] + (p2[c * 3 + 1] - cg[c]) * w) * L; b = (cb[c] + (p2[c * 3 + 2] - cb[c]) * w) * L;
+          } else { r = rgb[0] * cr[c]; gg = rgb[1] * cg[c]; b = rgb[2] * cb[c]; }
+          rough = (bil1(s.Rg, tu * s.kr, tv * s.kr) / 255) * s.r0 + s.r1 + cRough[c];
+          const nx0 = bil1(s.Nm, tu * s.kn, tv * s.kn, 0) / 127.5 - 1, ny0 = bil1(s.Nm, tu * s.kn, tv * s.kn, 1) / 127.5 - 1;
+          const nz0 = Math.sqrt(Math.max(0.05, 1 - nx0 * nx0 - ny0 * ny0));
+          const sx = (-nx0 / nz0) * s.nrm, sy = (-ny0 / nz0) * s.nrm;
+          dsx = cs * sx - sn * sy; dsy = sn * sx + cs * sy;
+          disp = (bil1(s.Dp, tu * s.kr, tv * s.kr) / 255 - 0.5) * 2 * s.disp;
+          if (s.emitTex && s.emit) emit = s.emit * Math.min(1, (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 / s.meanLum * 0.8);
+        } else {
+          if (s.pal && s.pmode === "blend") {
+            const w = clamp(0.5 + 0.9 * Bl[px] + 0.6 * cPh[c], 0, 1);
+            r = cr[c] + (p2[c * 3] - cr[c]) * w; gg = cg[c] + (p2[c * 3 + 1] - cg[c]) * w; b = cb[c] + (p2[c * 3 + 2] - cb[c]) * w;
+          } else { r = cr[c]; gg = cg[c]; b = cb[c]; }
+          rough = s.r1 + cRough[c] + (s.legacy ? 0.03 * Ro[px] : 0.01 * Ro[px]);
+          if (s.proc === "glaze") { // зеллидж: волнистая глазурь, у кромок гуще и темнее
+            hF += 0.35 * Wb[px];
+            lum *= 0.8 + 0.2 * t + 0.03 * Wb[px];
+          } else if (s.proc === "glass") lum *= 1 + 0.03 * Mo[px] + 0.02 * g;
+          else if (s.proc === "smooth") lum *= 1 + 0.006 * Mo[px];
+          if (s.emit) emit = s.emit;
+        }
+        if (s.fin.ribs) { // рифление вдоль длинной стороны
+          const ang = ras.cang[c], across = -Math.sin(ang) * lx + Math.cos(ang) * ly, rb = s.fin.ribs;
+          hF += rb.depth * (0.5 + 0.5 * Math.cos((2 * Math.PI * across) / rb.pitch)) * (1 + (rb.noise || 0) * 0.5 * Ch[px]) - rb.depth;
+        }
+        if (Sp && s.fin.specks && Sp[px] > 2.35 - s.fin.specks.dens * 1.2) { const sc = hexToRgbCached(s.fin.specks.color); r = sc[0]; gg = sc[1]; b = sc[2]; }
+        if (s.fin.sparkle && Sk[px] > 2.7 - s.fin.sparkle) { rough = 0.06; lum *= 1.25; }
+        if (Sp && s.legacy) {
+          const sv = Sp[px];
+          if (sv > spThr) { lum *= 1 - spC; rough += 0.04; }
+          else if (sv < -spThr) { r += (255 - r) * spC; gg += (255 - gg) * spC; b += (255 - b) * spC; rough -= 0.04; }
+        }
+        if (s.decor) {
+          // декор в локальных координатах элемента [-1, 1], поворот на 90°·k своё для каждого элемента
+          let u = lx / (0.5 * Math.max(ras.cw[c], 1)), v = ly / (0.5 * Math.max(ras.ch[c], 1));
+          const rt = cRot[c];
+          if (rt === 1) { const t2 = u; u = v; v = -t2; } else if (rt === 2) { u = -u; v = -v; } else if (rt === 3) { const t2 = u; u = -v; v = t2; }
+          let da = decorSD(s.decor, u, v) * cAA[c] + 0.5;
+          da = da < 0 ? 0 : da > 1 ? 1 : da;
+          if (da > 0) { const dcol = s.decRGB; r += (dcol[0] - r) * da; gg += (dcol[1] - gg) * da; b += (dcol[2] - b) * da; }
+        }
+        r *= lum; gg *= lum; b *= lum;
+        faceCnt += a > 0.5 ? 1 : 0;
       }
-      if (Sp) {
-        const s = Sp[px];
-        if (s > spThr) { lum *= 1 - spC; rough += 0.04; }
-        else if (s < -spThr) { r += (255 - r) * spC; gg += (255 - gg) * spC; b += (255 - b) * spC; rough -= 0.04; }
+
+      // ── шов ──
+      let jr = jc0, jg = jc1, jb = jc2, jRo = jRough + 0.02 * g, jMet = 0, jdsx = 0, jdsy = 0, jdisp = 0;
+      if (a < 1) {
+        if (prof.insert && Xa < prof.insert && !cVoid[c]) { jr = 201; jg = 162; jb = 78; jRo = 0.25; jMet = 255; } // латунь
+        else if (prof.cover && !cVoid[c]) { jr = 185; jg = 190; jb = 196; jRo = 0.35; jMet = 255; hJ += 0.1 * g; } // нащельник
+        else if (fC) {
+          bil3(fC, x * fku, y * fku, rgb);
+          const L = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 / fMean;
+          jr = jc0 * L; jg = jc1 * L; jb = jc2 * L;
+          jRo = clamp(fill.r + 0.15 * (bil1(fR, x * fkr, y * fkr) / 255 - 0.5), 0, 1);
+          const nx0 = bil1(fN, x * fkn, y * fkn, 0) / 127.5 - 1, ny0 = bil1(fN, x * fkn, y * fkn, 1) / 127.5 - 1;
+          const nz0 = Math.sqrt(Math.max(0.05, 1 - nx0 * nx0 - ny0 * ny0));
+          jdsx = -nx0 / nz0 * 0.8; jdsy = -ny0 / nz0 * 0.8;
+          jdisp = (bil1(fD, x * fkr, y * fkr) / 255 - 0.5) * (fill.id === "grass" ? 5 : 1.2);
+        } else { const jl = 1 + jGrain * g; jr *= jl; jg *= jl; jb *= jl; }
+        if (cVoid[c]) { jr *= 0.28; jg *= 0.28; jb *= 0.28; jRo = 1; }
       }
-      const jl = (1 + 0.12 * g) * (cVoid[c] ? 0.28 : 1);
-      diffuse[o] = jc0 * jl + (r * lum - jc0 * jl) * a;
-      diffuse[o + 1] = jc1 * jl + (gg * lum - jc1 * jl) * a;
-      diffuse[o + 2] = jc2 * jl + (b * lum - jc2 * jl) * a;
+
+      h[i] = hJ + (hF - hJ) * a;
+      diffuse[o] = jr + (r - jr) * a;
+      diffuse[o + 1] = jg + (gg - jg) * a;
+      diffuse[o + 2] = jb + (b - jb) * a;
       diffuse[o + 3] = 255;
-      const jr = jRough + 0.02 * g;
-      erm[o] = mEmit[m] * a * 255;
-      erm[o + 1] = (jr + (rough - jr) * a) * 255;
-      erm[o + 2] = a >= 0.5 ? mMetal[m] : 0;
+      erm[o] = emit * a * 255;
+      erm[o + 1] = clamp(jRo + (rough - jRo) * a, 0, 1) * 255;
+      erm[o + 2] = a >= 0.5 ? s.metal : jMet;
       erm[o + 3] = 255;
+      // детальный уклон (текстура) и рельеф карты высот — до итоговой нормали
+      const ex = jdsx + (dsx - jdsx) * a, ey = jdsy + (dsy - jdsy) * a;
+      normal[o] = 128 + clamp(ex * 63, -127, 127);
+      normal[o + 1] = 128 + clamp(ey * 63, -127, 127);
+      best[i] = jdisp + (disp - jdisp) * a; // best больше не нужен — храним в нём рельеф текстуры
     }
     if ((py & 63) === 0) prog("карты", 0.3 + 0.45 * (py / N));
   }
   T.shade = Date.now() - T.start;
 
+  // Normal DX (Y−): n = (−dh/dx, −dh/dy, 1), y вниз по картинке; + детальный уклон текстур
+  prog("normal", 0.8);
+  const sN = (num(P.normalStrength, 1) * k) / 2;
+  for (let y = 0; y < N; y++) {
+    const ym = (y === 0 ? N - 1 : y - 1) * N, yp = (y === N - 1 ? 0 : y + 1) * N, yo = y * N;
+    for (let x = 0; x < N; x++) {
+      const xm = x === 0 ? N - 1 : x - 1, xp = x === N - 1 ? 0 : x + 1, o = (yo + x) * 4;
+      const gx = (h[yo + xp] - h[yo + xm]) * sN + ((normal[o] - 128) / 63) * num(P.normalStrength, 1);
+      const gy = (h[yp + x] - h[ym + x]) * sN + ((normal[o + 1] - 128) / 63) * num(P.normalStrength, 1);
+      const inv = 1 / Math.sqrt(gx * gx + gy * gy + 1);
+      normal[o] = (0.5 - 0.5 * gx * inv) * 255 + 0.5;
+      normal[o + 1] = (0.5 - 0.5 * gy * inv) * 255 + 0.5;
+      normal[o + 2] = (0.5 + 0.5 * inv) * 255 + 0.5;
+      normal[o + 3] = 255;
+    }
+  }
+  // рельеф карт высот текстур — в высоту (для AO и Height), нормаль его уже учла через детальный уклон
+  let hMin = 1e30, hMax = -1e30;
+  for (let i = 0; i < NN; i++) { const hv = (h[i] += best[i]); if (hv < hMin) hMin = hv; if (hv > hMax) hMax = hv; }
+
   // AO от высоты → в Diffuse
   const aoA = clamp(num(P.ao, 0), 0, 100) / 100;
   if (aoA > 0) {
-    prog("AO", 0.78);
-    const tmp = best, bl = new Float32Array(NN), cav = new Float32Array(NN); // best больше не нужен
+    prog("AO", 0.88);
+    const tmp = best, bl = new Float32Array(NN), cav = new Float32Array(NN); // best свободен
     blurWrap(h, N, Math.max(1, Math.round(2 * k)), bl, tmp);
     for (let i = 0; i < NN; i++) { const v = bl[i] - h[i]; cav[i] = v > 0 ? 0.16 * v : 0; }
     blurWrap(h, N, Math.max(2, Math.round(10 * k)), bl, tmp);
     for (let i = 0; i < NN; i++) {
       const v = bl[i] - h[i], ao = clamp(1 - aoA * (cav[i] + (v > 0 ? 0.05 * v : 0)), 0.15, 1), o = i * 4;
       diffuse[o] *= ao; diffuse[o + 1] *= ao; diffuse[o + 2] *= ao;
-    }
-  }
-
-  // Normal DX (Y−): n = (−dh/dx, −dh/dy, 1), y вниз по картинке
-  prog("normal", 0.88);
-  const s = (num(P.normalStrength, 1) * k) / 2;
-  let hMin = 1e30, hMax = -1e30;
-  for (let y = 0; y < N; y++) {
-    const ym = (y === 0 ? N - 1 : y - 1) * N, yp = (y === N - 1 ? 0 : y + 1) * N, yo = y * N;
-    for (let x = 0; x < N; x++) {
-      const xm = x === 0 ? N - 1 : x - 1, xp = x === N - 1 ? 0 : x + 1;
-      const gx = (h[yo + xp] - h[yo + xm]) * s, gy = (h[yp + x] - h[ym + x]) * s;
-      const inv = 1 / Math.sqrt(gx * gx + gy * gy + 1), o = (yo + x) * 4;
-      normal[o] = (0.5 - 0.5 * gx * inv) * 255 + 0.5;
-      normal[o + 1] = (0.5 - 0.5 * gy * inv) * 255 + 0.5;
-      normal[o + 2] = (0.5 + 0.5 * inv) * 255 + 0.5;
-      normal[o + 3] = 255;
-      const hv = h[yo + x];
-      if (hv < hMin) hMin = hv; if (hv > hMax) hMax = hv;
     }
   }
 
@@ -1148,6 +1319,18 @@ export function thumbParams(preset, plane, res) {
     P.ex = Math.max(1, P.ex - d); P.ey = Math.max(1, P.ey - d);
     if (P.layout === "bond") P.ez = Math.max(1, num(P.ez, 65) - d);
   }
+  // нейтральный вид: серые тона по слотам, без текстур; шов — из подсказки узора
+  const NEUTRAL = ["#9c9b97", "#d0cfca", "#5e5d5a", "#b6b5b0", "#7b7a76", "#e3e2dd", "#484745", "#8b8a86", "#c3c2bd"];
+  P.materials = (P.materials && P.materials.length ? P.materials : [{}]).map((m, i) => {
+    const col = NEUTRAL[i % NEUTRAL.length], light = hexToRgb(col)[0] > 0.55;
+    return { color: col, vary: 4, rough: 0.8, weight: m.weight || 1, raise: m.raise || 0, slope: m.slope || 0, decor: m.decor || "none", decorColor: light ? "#4a4947" : "#dddcd7" };
+  });
+  const j = preset.j || {};
+  P.jointFill = "cement";
+  P.jointColor = preset.cat === "brick" ? "#c6c3bc" : "#7d7b77";
+  P.jointProfile = j.profile || "concave";
+  P.jointDepth = j.depth == null ? 3 : j.depth;
+  P.grain = 2; P.mottle = 1; P.speck = 0;
   P.paint = null;
   return P;
 }
