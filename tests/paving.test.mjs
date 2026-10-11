@@ -1,7 +1,7 @@
 // Тесты генератора мощения: node tests/paving.test.mjs
 import assert from "node:assert/strict";
 import zlib from "node:zlib";
-import { generate, buildLayout, parseRules, ruleMat, rng, DEFAULTS, _internal } from "../js/paving/gen.js";
+import { generate, buildLayout, parseRules, parseBond, ruleMat, rng, DEFAULTS, _internal } from "../js/paving/gen.js";
 import { encodePNG } from "../js/paving/png.js";
 
 const P0 = (o) => Object.assign({}, DEFAULTS, o);
@@ -68,7 +68,22 @@ const LAY = [
   ["hex", { layout: "hex", ex: 200 }],
   ["voronoi", { layout: "voronoi", ex: 400, jitter: 90, relax: 1, joint: 12 }],
   ["rotate", { layout: "running", ex: 100, ey: 300, rotate: true }],
+  ["diagonal 1:1", { layout: "diagonal", ex: 300, ey: 300 }],
+  ["diagonal 2:1", { layout: "diagonal", ex: 200, ey: 100 }],
+  ["chevron 45", { layout: "chevron", ex: 600, ey: 120, angle: 45 }],
+  ["chevron 60", { layout: "chevron", ex: 500, ey: 100, angle: 60 }],
+  ["herring90 ×2", { layout: "herring90", ex: 400, ey: 100, multi: 2 }],
+  ["herring45 ×3", { layout: "herring45", ex: 450, ey: 50, multi: 3 }],
+  ["windmill", { layout: "windmill", ex: 300, ey: 100 }],
+  ["hopscotch", { layout: "hopscotch", ex: 400, ey: 200 }],
+  ["rhombus", { layout: "rhombus", ex: 200 }],
+  ["modular", { layout: "modular", ex: 100, modSizes: "3x2 2x2 2x1:2 1x2 1x1" }],
+  ["bond flemish", { layout: "bond", ex: 250, ey: 120, ez: 65, joint: 10, bond: "L T\nL T @3" }],
+  ["bond soldier+R+gap", { layout: "bond", ex: 250, ey: 120, ez: 65, joint: 10, bond: "L\nL @2\nR\nS\nL _2\nL _2 @3" }],
+  ["bond wild+shift", { layout: "bond", ex: 250, ey: 120, ez: 65, joint: 10, bond: "?\nL T >2" }],
 ];
+// чешуя — круговые ячейки: проверка растром (каждый пиксель внутри своей ячейки)
+const LAY_TERMS = [["scales", { layout: "scales", ex: 200 }], ["scales rotate", { layout: "scales", ex: 150, rotate: true }]];
 for (const [name, o] of LAY) test("раскладка " + name, () => {
   const P = P0(o), lay = buildLayout(P, 1, rng(5));
   const area = lay.cells.reduce((s, c) => s + polyArea(c.poly), 0);
@@ -77,6 +92,14 @@ for (const [name, o] of LAY) test("раскладка " + name, () => {
   assert.equal(cv.max, 1, "наложение ячеек");
   assert.ok(cv.zero < 397 * 397 * 0.002, "дыр " + cv.zero); // пиксели точно на границе
   console.log("      " + lay.countText + " · " + lay.elemText);
+});
+
+for (const [name, o] of LAY.concat(LAY_TERMS)) test("растр без дыр: " + name, () => {
+  const P = P0(Object.assign({ irregular: 0, corner: 0 }, o)), lay = buildLayout(P, 1, rng(5));
+  const N = 389, r = _internal.rasterize(lay.cells, N, P.size, P, rng(1));
+  let min = 1e9;
+  for (const v of r.best) if (v < min) min = v;
+  assert.ok(min > -1e-6, "пиксель вне всех ячеек, d = " + min.toFixed(3));
 });
 
 // 3. правило «Профи 4–1 / 4–2–3» = make_tile1_v2.py
@@ -98,6 +121,20 @@ test("правило вставок = make_tile1_v2.py", () => {
     if (r % 4 === 2) kb++;
   }
 });
+test("кладка: разбор и ошибки", () => {
+  assert.throws(() => parseBond("L S"), /разной высоты/);
+  assert.throws(() => parseBond("L x"), /непонятный/);
+  assert.equal(parseBond("Л Т\nЛ Т @3")[1].off, 3);
+  const P = P0({ layout: "bond", ex: 250, ey: 120, ez: 65, joint: 10, bond: "L T\nL T @3", size: 4000 });
+  const lay = buildLayout(P, 1, rng(1));
+  assert.equal(lay.rows % 2, 0);
+  // фламандская: тычок второго ряда по центру ложка первого
+  const row0 = lay.cells.filter((c) => c.row === 0), row1 = lay.cells.filter((c) => c.row === 1);
+  const t1 = row1.find((c) => c.part === 1), cxT = (t1.poly[0] + t1.poly[2]) / 2;
+  const below = row0.find((c) => c.poly[0] <= cxT && c.poly[2] >= cxT);
+  assert.equal(below.part, 0);
+  assert.ok(Math.abs((below.poly[0] + below.poly[2]) / 2 - cxT) < 1e-6);
+});
 test("правило: ошибки разбора", () => {
   assert.equal(parseRules("4 x", 2).ok, false);
   assert.equal(parseRules("4 1 *3", 2).ok, false);
@@ -112,7 +149,7 @@ test("generate: Тип 1, проверки", () => {
   assert.ok(!r.checks.some((c) => c.level === "err"));
   assert.ok(r.checks.some((c) => /не соприкасаются/.test(c.text)));
 });
-for (const [name, o] of LAY) test("generate 512: " + name, () => {
+for (const [name, o] of LAY.concat(LAY_TERMS)) test("generate 512: " + name, () => {
   const r = generate(P0(Object.assign({ irregular: 2, corner: 3, chip: 1, relief: 1, speck: 40 }, o)), 512, {});
   const bad = r.checks.filter((c) => c.level === "err");
   assert.equal(bad.length, 0, bad.map((c) => c.text).join("; "));

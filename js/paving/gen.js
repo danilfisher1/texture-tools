@@ -9,27 +9,36 @@ const SQ2 = Math.SQRT2, SQ3 = Math.sqrt(3);
 export const LAYOUTS = [
   { id: "stack", name: "Шов в шов" },
   { id: "running", name: "Вразбежку (смещение рядов)" },
-  { id: "herring90", name: "Ёлочка 90°" },
-  { id: "herring45", name: "Ёлочка 45°" },
+  { id: "diagonal", name: "Диагональ 45°" },
+  { id: "herring90", name: "Ёлочка 90° (1–3 планки)" },
+  { id: "herring45", name: "Ёлочка 45° (1–3 планки)" },
+  { id: "chevron", name: "Французская ёлочка (шеврон)" },
   { id: "basket", name: "Корзинка" },
-  { id: "hex", name: "Шестигранник" },
+  { id: "modular", name: "Модульная (разные форматы)" },
+  { id: "windmill", name: "Ветряная мельница" },
+  { id: "hopscotch", name: "Вертушка (2 квадрата)" },
+  { id: "hex", name: "Шестигранник (соты)" },
+  { id: "rhombus", name: "Ромбы 3D (кубы)" },
+  { id: "scales", name: "Рыбья чешуя" },
   { id: "voronoi", name: "Плитняк / мозаика" },
+  { id: "bond", name: "Кирпичная кладка (перевязка)" },
 ];
 
 export const DEFAULTS = {
   size: 4000, seed: 1,
   layout: "running", ex: 100, ey: 300, joint: 3, countX: 0, countY: 0,
   offset: "1/2", jitter: 0, relax: 1, rotate: false, snapRows: true,
+  ez: 65, angle: 45, multi: 1, modSizes: "2x2 2x1 1x2 1x1", bond: "L\nL @2",
   chamfer: 2, profile: "round", chip: 0, irregular: 0, corner: 0,
   relief: 0.15, reliefScale: 6, tilt: 0.3, lift: 0.2,
   grain: 3.5, mottle: 1.2, speck: 0, speckContrast: 30, edgeDark: 12,
   jointColor: "#4d4a45", jointRough: 0.95, jointDepth: 4,
   normalStrength: 1, ao: 50,
   materials: [
-    { color: "#6e7070", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1 },
-    { color: "#cecfcb", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1 },
+    { color: "#6e7070", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
+    { color: "#cecfcb", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
   ],
-  colorMode: "single",
+  colorMode: "single", noTouch: false,
   rules: "4 1 >-1\n-\n4 2 3 >-1\n-",
   paint: null,
 };
@@ -172,46 +181,324 @@ function brickRatio(P) {
   return { L, W, k: Math.max(1, Math.round((L + j) / (W + j))) };
 }
 
-// Ёлочка: пара «вертикальный + горизонтальный» кирпич, решётка (W, W) и (L, −L), L = k·W
+// Ёлочка: пара «вертикальный + горизонтальный» элемент, решётка (W, W) и (L, −L), L = k·W.
+// multi > 1 — двойная / тройная ёлочка: каждый элемент пары = multi планок рядом.
+function herringBase(P) {
+  const j = P.joint, L = Math.max(P.ex, P.ey), W = Math.min(P.ex, P.ey);
+  const m = clamp(Math.round(num(P.multi, 1)), 1, 4);
+  const k = Math.max(2, Math.round((L + j) / (m * (W + j))));
+  return { j, L, W, m, k };
+}
+
+// прямоугольник, разрезанный на m полос (splitX — полосы по X, иначе по Y)
+function strips(x0, y0, x1, y1, m, splitX) {
+  const out = [];
+  for (let i = 0; i < m; i++) {
+    out.push(splitX ? rect(x0 + ((x1 - x0) * i) / m, y0, x0 + ((x1 - x0) * (i + 1)) / m, y1)
+      : rect(x0, y0 + ((y1 - y0) * i) / m, x1, y0 + ((y1 - y0) * (i + 1)) / m));
+  }
+  return out;
+}
+
+function herringTexts(cells, k, m, Lc, Wc, b, extra) {
+  const { j, L, W } = b;
+  return {
+    countText: `${extra}, ${cells.length} шт (L = ${k}·${m > 1 ? m + "·" : ""}W${m > 1 ? `, по ${m} планки` : ""})`,
+    elemText: `элемент ${(Lc - j).toFixed(1)} × ${(Wc / m - j).toFixed(1)} мм (номинал ${L} × ${W}: ${pct(Lc, L + j)} / ${pct(Wc / m, W + j)})`,
+    dev: Math.max(Math.abs(Lc / (L + j) - 1), Math.abs(Wc / m / (W + j) - 1)),
+  };
+}
+
 function layoutHerring90(P, S) {
-  const j = P.joint, { L, W } = brickRatio(P), k = Math.max(2, brickRatio(P).k);
-  const n = fit(S, 2 * k * (W + j), P.countX);
-  const M = 2 * n * k, Wp = S / M, Lp = k * Wp;
+  const b = herringBase(P), { k, m } = b;
+  const n = fit(S, 2 * k * m * (b.W + b.j), P.countX);
+  const M = 2 * n * k, Wc = S / M, Lc = k * Wc;
   const cells = [], seen = new Set();
-  for (let b = 0; b < n; b++) for (let a = 0; a < M; a++) {
-    const tu = mod(a + b * k, M), tv = mod(a - b * k, M), key = tu * M + tv;
+  for (let bb = 0; bb < n; bb++) for (let a = 0; a < M; a++) {
+    const tu = mod(a + bb * k, M), tv = mod(a - bb * k, M), key = tu * M + tv;
     if (seen.has(key)) throw new Error("ёлочка: повтор пары " + key);
     seen.add(key);
-    const tx = tu * Wp, ty = tv * Wp;
-    cells.push({ poly: rect(tx, ty, tx + Wp, ty + Lp), row: b, col: 2 * a });
-    cells.push({ poly: rect(tx + Wp, ty, tx + Wp + Lp, ty + Wp), row: b, col: 2 * a + 1 });
+    const tx = tu * Wc, ty = tv * Wc;
+    strips(tx, ty, tx + Wc, ty + Lc, m, true).forEach((poly, i) => cells.push({ poly, row: bb, col: 2 * a * m + i, part: 0 }));
+    strips(tx + Wc, ty, tx + Wc + Lc, ty + Wc, m, false).forEach((poly, i) => cells.push({ poly, row: bb, col: (2 * a + 1) * m + i, part: 1 }));
   }
-  return {
-    cells, kind: "herring", rows: n, cols: 2 * M, rowMult: 1,
-    countText: `${n} × ${n} модулей ${(2 * Lp).toFixed(0)} мм, ${cells.length} шт (L = ${k}·W)`,
-    elemText: `элемент ${(Lp - j).toFixed(1)} × ${(Wp - j).toFixed(1)} мм (номинал ${L} × ${W}: ${pct(Lp, L + j)} / ${pct(Wp, W + j)})`,
-    dev: Math.max(Math.abs(Lp / (L + j) - 1), Math.abs(Wp / (W + j) - 1)),
-  };
+  return Object.assign({ cells, kind: "herring", rows: n, cols: 2 * M * m, rowMult: 1 },
+    herringTexts(cells, k, m, Lc, Wc, b, `${n} × ${n} модулей ${(2 * Lc).toFixed(0)} мм`));
 }
 
 // Та же ёлочка, повёрнутая на −45°: решётка становится прямоугольной W√2 × L√2
 function layoutHerring45(P, S) {
-  const j = P.joint, { L, W } = brickRatio(P), k = Math.max(2, brickRatio(P).k);
-  const ny = fit(S, k * (W + j) * SQ2, P.countY), nx = k * ny;
-  const Wp = S / (nx * SQ2), Lp = k * Wp;
+  const b = herringBase(P), { k, m } = b;
+  const ny = fit(S, k * m * (b.W + b.j) * SQ2, P.countY), nx = k * ny;
+  const Wc = S / (nx * SQ2), Lc = k * Wc;
   const rot = (pts) => { const o = []; for (let i = 0; i < pts.length; i += 2) o.push((pts[i] + pts[i + 1]) / SQ2, (pts[i + 1] - pts[i]) / SQ2); return o; };
-  const V = rot(rect(0, 0, Wp, Lp)), H = rot(rect(Wp, 0, Wp + Lp, Wp));
+  const V = strips(0, 0, Wc, Lc, m, true).map(rot), H = strips(Wc, 0, Wc + Lc, Wc, m, false).map(rot);
   const cells = [];
-  for (let b = 0; b < ny; b++) for (let a = 0; a < nx; a++) {
-    const tx = a * Wp * SQ2, ty = b * Lp * SQ2;
-    cells.push({ poly: V.map((v, i) => v + (i & 1 ? ty : tx)), row: b, col: 2 * a });
-    cells.push({ poly: H.map((v, i) => v + (i & 1 ? ty : tx)), row: b, col: 2 * a + 1 });
+  for (let bb = 0; bb < ny; bb++) for (let a = 0; a < nx; a++) {
+    const tx = a * Wc * SQ2, ty = bb * Lc * SQ2;
+    V.forEach((p, i) => cells.push({ poly: p.map((v, q) => v + (q & 1 ? ty : tx)), row: bb, col: 2 * a * m + i, part: 0 }));
+    H.forEach((p, i) => cells.push({ poly: p.map((v, q) => v + (q & 1 ? ty : tx)), row: bb, col: (2 * a + 1) * m + i, part: 1 }));
+  }
+  return Object.assign({ cells, kind: "herring", rows: ny, cols: 2 * nx * m, rowMult: 1 },
+    herringTexts(cells, k, m, Lc, Wc, b, `${nx} × ${ny} модулей`));
+}
+
+// ───────── общий механизм: мотив одного периода Px × Py → вся текстура ─────────
+// Ячейка мотива: poly (выпуклый многоугольник) и/или terms (круги для чешуи), part — часть узора.
+function replicate(motif, Px, Py, nX, nY, S) {
+  const sx = S / (nX * Px), sy = S / (nY * Py), cells = [];
+  let rowsPer = 1, colsPer = 1;
+  for (const m of motif) { rowsPer = Math.max(rowsPer, (m.row || 0) + 1); colsPer = Math.max(colsPer, (m.col || 0) + 1); }
+  for (let iy = 0; iy < nY; iy++) for (let ix = 0; ix < nX; ix++) {
+    const ox = ix * Px, oy = iy * Py;
+    for (const m of motif) {
+      const c = { row: iy * rowsPer + (m.row || 0), col: ix * colsPer + (m.col || 0), part: m.part || 0 };
+      c.poly = m.poly.map((v, i) => (i & 1 ? (v + oy) * sy : (v + ox) * sx));
+      if (m.terms) c.terms = m.terms.map((t) => ({ k: t.k, x: (t.x + ox) * sx, y: (t.y + oy) * sy, r: t.r * Math.sqrt(sx * sy) }));
+      cells.push(c);
+    }
+  }
+  return { cells, sx, sy, rows: nY * rowsPer, cols: nX * colsPer };
+}
+
+// все сдвиги базовых фигур по решётке u, v внутри тора Px × Py (обход в ширину)
+function latticeMotif(base, u, v, Px, Py) {
+  const wrap = (x, P) => { let m = mod(x, P); if (P - m < 1e-6) m = 0; return m; };
+  const key = (x, y) => Math.round(wrap(x, Px) * 1000) + ":" + Math.round(wrap(y, Py) * 1000);
+  const out = [], seen = new Set([key(0, 0)]), queue = [[0, 0]];
+  while (queue.length) {
+    const [i, j] = queue.shift();
+    const tx = i * u[0] + j * v[0], ty = i * u[1] + j * v[1];
+    const dx = wrap(tx, Px) - tx, dy = wrap(ty, Py) - ty;
+    for (const b of base) out.push(Object.assign({}, b, { poly: b.poly.map((val, q) => val + (q & 1 ? ty + dy : tx + dx)), i, j, col: out.length }));
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ni = i + di, nj = j + dj, kk = key(ni * u[0] + nj * v[0], ni * u[1] + nj * v[1]);
+      if (!seen.has(kk)) { seen.add(kk); queue.push([ni, nj]); }
+    }
+    if (out.length > 50000) throw new Error("решётка не замыкается на период");
+  }
+  return out;
+}
+
+function isoTexts(r, n, unit) {
+  return { countText: `${n} × ${n} модулей ${unit.toFixed(0)} мм, ${r.cells.length} шт` };
+}
+
+// Диагональ 45°: прямоугольник L = k·W (квадрат при k = 1), период √2·L по обеим осям
+function layoutDiagonal(P, S) {
+  const j = P.joint, L = Math.max(P.ex, P.ey), W = Math.min(P.ex, P.ey);
+  const k = Math.max(1, Math.round((L + j) / (W + j)));
+  const Wp = W + j, Lp = k * Wp, Pn = SQ2 * Lp, c = Math.SQRT1_2;
+  const R = (x, y) => [(x - y) * c, (x + y) * c];
+  const poly = [[-Lp / 2, -Wp / 2], [Lp / 2, -Wp / 2], [Lp / 2, Wp / 2], [-Lp / 2, Wp / 2]].flatMap(([x, y]) => R(x, y));
+  // шахматка (часть = чётность i + j) согласована с периодом только при нечётном k
+  const motif = latticeMotif([{ poly }], R(Lp, 0), R(0, Wp), Pn, Pn).map((m) => ({ poly: m.poly, col: m.col, part: k % 2 ? mod(m.i + m.j, 2) : 0 }));
+  const n = fit(S, Pn, P.countX), r = replicate(motif, Pn, Pn, n, n, S), s = r.sx;
+  return Object.assign({ cells: r.cells, kind: "lattice", rows: r.rows, cols: r.cols, rowMult: 1 }, isoTexts(r, n, Pn * s), {
+    elemText: `элемент ${(Lp * s - j).toFixed(1)} × ${(Wp * s - j).toFixed(1)} мм (номинал ${L} × ${W}: ${pct(Lp * s, L + j)} / ${pct(Wp * s, W + j)})`,
+    dev: Math.max(Math.abs((Lp * s) / (L + j) - 1), Math.abs((Wp * s) / (W + j) - 1)),
+  });
+}
+
+// Французская ёлочка: полосы шириной C, в них параллелограммы с наклоном ±angle, торцы — по границе полос
+function layoutChevron(P, S) {
+  const j = P.joint, L = Math.max(P.ex, P.ey), W = Math.min(P.ex, P.ey);
+  const deg = clamp(num(P.angle, 45), 15, 75), al = (deg * Math.PI) / 180, t = Math.tan(al);
+  const C = (L + j) * Math.cos(al), h = (W + j) / Math.cos(al);
+  const nX = fit(S, 2 * C, P.countX), nY = fit(S, h, P.countY);
+  const motif = [
+    { poly: [0, 0, C, C * t, C, C * t + h, 0, h], col: 0, part: 0 },
+    { poly: [C, C * t, 2 * C, 0, 2 * C, h, C, C * t + h], col: 1, part: 1 },
+  ];
+  const r = replicate(motif, 2 * C, h, nX, nY, S);
+  return {
+    cells: r.cells, kind: "chevron", rows: r.rows, cols: r.cols, rowMult: 1,
+    countText: `${nX} × ${nY} модулей, ${r.cells.length} шт, угол ${deg}°`,
+    elemText: `планка ~${((L + j) * Math.hypot(r.sx * Math.cos(al), r.sy * Math.sin(al)) - j).toFixed(1)} × ${((W + j) * r.sy - j).toFixed(1)} мм (подгонка X ${pct(r.sx, 1)}, Y ${pct(r.sy, 1)})`,
+    dev: Math.max(Math.abs(r.sx - 1), Math.abs(r.sy - 1)),
+  };
+}
+
+// Ветряная мельница: 4 прямоугольника a×b вокруг квадрата (a − b), блок (a + b)²
+function layoutWindmill(P, S) {
+  const j = P.joint, a = Math.max(P.ex, P.ey) + j, b = Math.min(P.ex, P.ey) + j, Q = a + b;
+  const n = fit(S, Q, P.countX);
+  const motif = [
+    { poly: rect(0, 0, a, b), col: 0 }, { poly: rect(a, 0, Q, a), col: 1 },
+    { poly: rect(b, a, Q, Q), col: 2 }, { poly: rect(0, b, b, Q), col: 3 },
+    { poly: rect(b, b, a, a), col: 4, part: 1 },
+  ];
+  const r = replicate(motif, Q, Q, n, n, S), s = r.sx;
+  return Object.assign({ cells: r.cells, kind: "lattice", rows: r.rows, cols: r.cols, rowMult: 1 }, isoTexts(r, n, Q * s), {
+    elemText: `прямоугольник ${(a * s - j).toFixed(1)} × ${(b * s - j).toFixed(1)}, квадрат ${((a - b) * s - j).toFixed(1)} мм (${pct(s, 1)})`,
+    dev: Math.abs(s - 1),
+  });
+}
+
+// Вертушка (пифагорова раскладка): большой квадрат A и малый B = A / r, решётка (A, B), (−B, A)
+function layoutHopscotch(P, S) {
+  const j = P.joint, A = Math.max(P.ex, P.ey) + j, r0 = Math.max(2, Math.round(A / (Math.min(P.ex, P.ey) + j))), B = A / r0;
+  const Pn = (r0 * r0 + 1) * B;
+  const motif = latticeMotif([{ poly: rect(0, 0, A, A), part: 0 }, { poly: rect(A, 0, A + B, B), part: 1 }], [A, B], [-B, A], Pn, Pn);
+  const n = fit(S, Pn, P.countX), r = replicate(motif, Pn, Pn, n, n, S), s = r.sx;
+  return Object.assign({ cells: r.cells, kind: "lattice", rows: r.rows, cols: r.cols, rowMult: 1 }, isoTexts(r, n, Pn * s), {
+    elemText: `квадраты ${(A * s - j).toFixed(1)} и ${(B * s - j).toFixed(1)} мм (A = ${r0}·B, ${pct(s, 1)})`,
+    dev: Math.max(Math.abs(s - 1), Math.abs((B * s) / (Math.min(P.ex, P.ey) + j) - 1)),
+  });
+}
+
+// Рыбья чешуя: круги радиуса R, ряды через R со сдвигом R; чешуя = круг минус два круга ряда выше
+function layoutScales(P, S) {
+  const j = P.joint, D = P.ex + j, R0 = D / 2;
+  const n = fit(S, D, P.countX);
+  const disk = (x, y) => ({ k: 1, x, y, r: R0 }), out = (x, y) => ({ k: 2, x, y, r: R0 });
+  const motif = [
+    { poly: rect(-R0, -R0, R0, R0), terms: [disk(0, 0), out(-R0, -R0), out(R0, -R0)], row: 0 },
+    { poly: rect(0, 0, D, D), terms: [disk(R0, R0), out(0, 0), out(D, 0)], row: 1 },
+  ];
+  const r = replicate(motif, D, D, n, n, S), s = r.sx;
+  return {
+    cells: r.cells, kind: "grid", rows: r.rows, cols: r.cols, rowMult: 2,
+    countText: `${n} × ${2 * n} шт`,
+    elemText: `чешуя ${(D * s - j).toFixed(1)} мм (номинал ${P.ex}: ${pct(D * s, D)})`,
+    dev: Math.abs(s - 1),
+  };
+}
+
+// Модульная: решётка модулей n×n, жадное заполнение тора форматами из списка (seed)
+export function parseSizes(text) {
+  const out = [];
+  for (const t of String(text || "").split(/[\s,;]+/).filter(Boolean)) {
+    const m = /^(\d+)\s*[xх×*]\s*(\d+)(?::(\d+(?:\.\d+)?))?$/i.exec(t);
+    if (!m) throw new Error(`формат «${t}» не понят (нужно 2x1 или 2x1:3)`);
+    out.push({ w: +m[1], h: +m[2], wt: m[3] ? +m[3] : 1 });
+  }
+  if (!out.length) throw new Error("список форматов пуст");
+  return out;
+}
+
+function layoutModular(P, S, R) {
+  const j = P.joint, sizes = parseSizes(P.modSizes);
+  const n = Math.max(2, fit(S, P.ex + j, P.countX)), u = S / n;
+  const occ = new Uint8Array(n * n), cells = [];
+  const free = (x, y, w, h) => {
+    if (w > n || h > n) return false;
+    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) if (occ[mod(y + dy, n) * n + mod(x + dx, n)]) return false;
+    return true;
+  };
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (occ[y * n + x]) continue;
+    // случайный порядок с весами (ключ −ln(u)/w), берём первый влезающий формат
+    const pool = sizes.map((s, i) => ({ s, i, key: -Math.log(R() + 1e-12) / Math.max(s.wt, 1e-6) })).sort((a, b) => a.key - b.key);
+    let pick = pool.find((p) => free(x, y, p.s.w, p.s.h));
+    if (!pick) pick = { s: { w: 1, h: 1 }, i: sizes.length };
+    for (let dy = 0; dy < pick.s.h; dy++) for (let dx = 0; dx < pick.s.w; dx++) occ[mod(y + dy, n) * n + mod(x + dx, n)] = 1;
+    cells.push({ poly: rect(x * u, y * u, (x + pick.s.w) * u, (y + pick.s.h) * u), row: y, col: x, part: pick.i });
   }
   return {
-    cells, kind: "herring", rows: ny, cols: 2 * nx, rowMult: 1,
-    countText: `${nx} × ${ny} модулей, ${cells.length} шт (L = ${k}·W)`,
-    elemText: `элемент ${(Lp - j).toFixed(1)} × ${(Wp - j).toFixed(1)} мм (номинал ${L} × ${W}: ${pct(Lp, L + j)} / ${pct(Wp, W + j)})`,
-    dev: Math.max(Math.abs(Lp / (L + j) - 1), Math.abs(Wp / (W + j) - 1)),
+    cells, kind: "modular", rows: n, cols: n, rowMult: 1, random: true,
+    countText: `${n} × ${n} модулей, ${cells.length} шт`,
+    elemText: `модуль ${(u - j).toFixed(1)} мм (номинал ${P.ex}: ${pct(u, P.ex + j)}), форматы ${sizes.map((s) => s.w + "×" + s.h).join(", ")}`,
+    dev: Math.abs(u / (P.ex + j) - 1),
+  };
+}
+
+// ───────── кирпичная кладка ─────────
+// Строка = ряд сверху вниз, строки идут циклом. Ширина — в четвертях кирпича q = (L + шов) / 4:
+//   L — ложок (4q), T — тычок (2q), R — ложок на ребро (4q, ряд высотой W), S — солдатик (ряд высотой L),
+//   _N — пустота N четвертей (ажурная), ? — случайные ложки/тычки, @x — начальный сдвиг (q), >s — сдвиг за цикл.
+const BOND_W = { L: 4, T: 2, R: 4 };
+export function parseBond(text) {
+  const lines = [];
+  const src = String(text || "").split(/\r?\n/);
+  for (let ln = 0; ln < src.length; ln++) {
+    const s = src[ln].replace(/#.*/, "").trim();
+    if (!s) continue;
+    const L = { src: s, items: [], off: 0, shift: 0, random: false, kind: null };
+    const bad = (msg) => { throw new Error(`кладка, строка ${ln + 1} «${s}»: ${msg}`); };
+    for (let t of s.split(/[\s,;]+/).filter(Boolean)) {
+      t = t.toUpperCase().replace(/Л/g, "L").replace(/Т/g, "T").replace(/С/g, "S").replace(/Р/g, "R");
+      let m;
+      if ((m = /^@([+-]?\d+(?:\.\d+)?)$/.exec(t))) L.off = +m[1];
+      else if ((m = /^>([+-]?\d+)$/.exec(t))) L.shift = +m[1];
+      else if (t === "?") L.random = true;
+      else if ((m = /^_(\d*)$/.exec(t))) L.items.push({ t: "_", w: m[1] ? +m[1] : 2 });
+      else if (/^[LTRS]+$/.test(t)) for (const ch of t) L.items.push({ t: ch, w: BOND_W[ch] || 0 });
+      else bad(`непонятный элемент «${t}»`);
+    }
+    const kinds = new Set(L.items.filter((i) => i.t !== "_").map((i) => (i.t === "R" ? "W" : i.t === "S" ? "S" : "H")));
+    if (L.random) { if (L.items.length) bad("«?» — только один в ряду"); kinds.add("H"); }
+    if (kinds.size > 1) bad("в одном ряду элементы разной высоты (L/T, R, S)");
+    if (!kinds.size) bad("нет элементов");
+    L.kind = [...kinds][0];
+    if (L.kind === "S" && L.items.some((i) => i.t === "_")) bad("пустоты в ряду солдатиков не поддерживаются");
+    L.period = L.random ? 2 : L.kind === "S" ? 1 : L.items.reduce((a, i) => a + i.w, 0);
+    lines.push(L);
+  }
+  if (!lines.length) throw new Error("кладка: схема пустая");
+  return lines;
+}
+
+function layoutBond(P, S, ruleCycle, R) {
+  const j = P.joint, Lb = P.ex, Wb = P.ey, Hb = Math.max(5, num(P.ez, 65));
+  const lines = parseBond(P.bond), q0 = (Lb + j) / 4;
+  let per = 2;
+  for (const L of lines) if (L.kind !== "S") per = lcm(per, Math.max(1, Math.round(L.period)));
+  const nq = P.countX > 0 ? Math.max(per, Math.round((P.countX * 4) / per) * per) : Math.max(per, Math.round(S / q0 / per) * per);
+  const q = S / nq;
+  const rowH = (k) => (k === "H" ? Hb : k === "W" ? Wb : Lb) + j;
+  const Hc = lines.reduce((a, L) => a + rowH(L.kind), 0);
+  let cyc = 1;
+  for (const L of lines) if (L.shift && L.kind !== "S" && !L.random) cyc = lcm(cyc, L.period / gcd(L.period, Math.abs(L.shift)));
+  if (ruleCycle > 1) cyc = lcm(cyc, ruleCycle / gcd(ruleCycle, lines.length));
+  const nCyc = P.countY > 0 ? Math.max(1, Math.round(P.countY / lines.length)) : Math.max(cyc, Math.round(S / Hc / cyc) * cyc);
+  const sy = S / (nCyc * Hc);
+  const nS = Math.max(1, Math.round(S / (Hb + j)));
+  const PART = { L: 0, T: 1, S: 2, R: 3, _: 0 };
+  const cells = [];
+  let y = 0, row = 0, prevJoints = null;
+  for (let c = 0; c < nCyc; c++) for (const L of lines) {
+    const h = rowH(L.kind) * sy;
+    let col = 0;
+    const push = (x0, x1, t) => { cells.push({ poly: rect(x0, y, x1, y + h), row, col: col++, part: PART[t], void: t === "_" }); };
+    if (L.kind === "S") {
+      for (let i = 0; i < nS; i++) push((i * S) / nS, ((i + 1) * S) / nS, "S");
+    } else if (L.random) {
+      // дикая перевязка: случайные ложки/тычки, но шов не ложится на шов ряда ниже
+      const prev = prevJoints || new Set();
+      let p = Math.floor(R() * 4);
+      for (let t = 0; t < 8 && prev.has(mod(p, nq)); t++) p = Math.floor(R() * 4);
+      const joints = new Set([mod(p, nq)]);
+      let sum = 0;
+      while (sum < nq) {
+        let w = R() < 0.5 ? 4 : 2;
+        if (prev.has(mod(p + sum + w, nq)) && sum + 6 - w <= nq) w = 6 - w;
+        if (sum + w > nq) w = nq - sum;
+        push((p + sum) * q, (p + sum + w) * q, w === 4 ? "L" : "T");
+        sum += w;
+        joints.add(mod(p + sum, nq));
+      }
+      prevJoints = joints;
+    } else {
+      const x0 = L.off + L.shift * c;
+      let sum = 0, i = 0;
+      while (sum < nq - 1e-9) {
+        const it = L.items[i++ % L.items.length];
+        push((x0 + sum) * q, (x0 + sum + it.w) * q, it.t);
+        sum += it.w;
+      }
+    }
+    y += h;
+    row++;
+  }
+  const hasT = lines.some((L) => L.random || L.items.some((i) => i.t === "T"));
+  return {
+    cells, kind: "bond", rows: row, cols: 0, rowMult: lines.length, random: lines.some((L) => L.random),
+    countText: `${nq / 4} ложков по ширине × ${row} рядов (${nCyc} × цикл ${lines.length})`,
+    elemText: `ложок ${(4 * q - j).toFixed(1)}` + (hasT ? `, тычок ${(2 * q - j).toFixed(1)}` : "") +
+      ` × ${((Hb + j) * sy - j).toFixed(1)} мм (номинал ${Lb}×${Wb}×${Hb}: ${pct(q, q0)} / ${pct(sy, 1)})` +
+      (hasT && Math.abs((Wb + j) / (2 * q0) - 1) > 0.02 ? " · тычок подогнан к ½ ложка" : ""),
+    dev: Math.max(Math.abs(q / q0 - 1), Math.abs(sy - 1)),
   };
 }
 
@@ -221,8 +508,8 @@ function layoutBasket(P, S) {
   const B = 2 * n, Wp = S / (B * k), Lp = k * Wp;
   const cells = [];
   for (let bj = 0; bj < B; bj++) for (let bi = 0; bi < B; bi++) for (let m = 0; m < k; m++) {
-    if ((bi + bj) % 2 === 0) cells.push({ poly: rect(bi * Lp, bj * Lp + m * Wp, (bi + 1) * Lp, bj * Lp + (m + 1) * Wp), row: bj * k + m, col: bi });
-    else cells.push({ poly: rect(bi * Lp + m * Wp, bj * Lp, bi * Lp + (m + 1) * Wp, (bj + 1) * Lp), row: bj * k, col: bi * k + m });
+    if ((bi + bj) % 2 === 0) cells.push({ poly: rect(bi * Lp, bj * Lp + m * Wp, (bi + 1) * Lp, bj * Lp + (m + 1) * Wp), row: bj * k + m, col: bi, part: 0 });
+    else cells.push({ poly: rect(bi * Lp + m * Wp, bj * Lp, bi * Lp + (m + 1) * Wp, (bj + 1) * Lp), row: bj * k, col: bi * k + m, part: 1 });
   }
   return {
     cells, kind: "basket", rows: B * k, cols: B * k, rowMult: 1,
@@ -232,8 +519,9 @@ function layoutBasket(P, S) {
   };
 }
 
-// Шестигранник «вершиной вверх»: X — размер под ключ; период X = F, Y = √3·F (2 ряда)
-function layoutHex(P, S, ruleCycle) {
+// Шестигранник «вершиной вверх»: X — размер под ключ; период X = F, Y = √3·F (2 ряда).
+// split — ромбы 3D: каждый шестигранник делится на 3 ромба (верх / право / лево = части 0 / 1 / 2)
+function layoutHex(P, S, ruleCycle, split) {
   const j = P.joint, F = P.ex + j, R0 = F / SQ3;
   const nx = fit(S, F, P.countX);
   const pairMult = ruleCycle % 2 === 0 ? ruleCycle / 2 : ruleCycle;
@@ -241,17 +529,21 @@ function layoutHex(P, S, ruleCycle) {
   const sx = S / (nx * F), sy = S / (nr2 * SQ3 * F);
   const cells = [];
   for (let r = 0; r < 2 * nr2; r++) for (let c = 0; c < nx; c++) {
-    const cx = c * F + (r & 1) * F / 2, cy = r * 1.5 * R0, poly = [];
+    const cx = c * F + (r & 1) * F / 2, cy = r * 1.5 * R0, V = [];
     for (let v = 0; v < 6; v++) {
       const t = (Math.PI / 3) * v - Math.PI / 2;
-      poly.push((cx + R0 * Math.cos(t)) * sx, (cy + R0 * Math.sin(t)) * sy);
+      V.push([(cx + R0 * Math.cos(t)) * sx, (cy + R0 * Math.sin(t)) * sy]);
     }
-    cells.push({ poly, row: r, col: c });
+    if (!split) { cells.push({ poly: V.flat(), row: r, col: c }); continue; }
+    const C0 = [cx * sx, cy * sy]; // V: 0 верх, 1 вверху справа, 2 внизу справа, 3 низ, 4 внизу слева, 5 вверху слева
+    cells.push({ poly: [V[5], V[0], V[1], C0].flat(), row: r, col: 3 * c, part: 0 });
+    cells.push({ poly: [C0, V[1], V[2], V[3]].flat(), row: r, col: 3 * c + 1, part: 1 });
+    cells.push({ poly: [V[5], C0, V[3], V[4]].flat(), row: r, col: 3 * c + 2, part: 2 });
   }
   return {
-    cells, kind: "grid", rows: 2 * nr2, cols: nx, rowMult: 2,
-    countText: `${nx} × ${2 * nr2} шт`,
-    elemText: `под ключ ${(F * sx - j).toFixed(1)} мм (номинал ${P.ex}: ${pct(F * sx, F)}), сжатие по Y ${pct(sy, sx)}`,
+    cells, kind: split ? "lattice" : "grid", rows: 2 * nr2, cols: split ? 3 * nx : nx, rowMult: 2,
+    countText: split ? `${nx} × ${2 * nr2} кубов, ${cells.length} ромбов` : `${nx} × ${2 * nr2} шт`,
+    elemText: (split ? `ромб, сторона ${(R0 * sx - j * 0.58).toFixed(1)} мм; ` : "") + `под ключ ${(F * sx - j).toFixed(1)} мм (номинал ${P.ex}: ${pct(F * sx, F)}), сжатие по Y ${pct(sy, sx)}`,
     dev: Math.max(Math.abs(sx - 1), Math.abs(sy - 1)),
   };
 }
@@ -327,13 +619,22 @@ export function buildLayout(P, ruleCycle, R) {
     case "herring90": lay = layoutHerring90(P, S); break;
     case "herring45": lay = layoutHerring45(P, S); break;
     case "basket": lay = layoutBasket(P, S); break;
-    case "hex": lay = layoutHex(P, S, ruleCycle); break;
+    case "hex": lay = layoutHex(P, S, ruleCycle, false); break;
+    case "rhombus": lay = layoutHex(P, S, ruleCycle, true); break;
     case "voronoi": lay = layoutVoronoi(P, S, R); break;
+    case "diagonal": lay = layoutDiagonal(P, S); break;
+    case "chevron": lay = layoutChevron(P, S); break;
+    case "windmill": lay = layoutWindmill(P, S); break;
+    case "hopscotch": lay = layoutHopscotch(P, S); break;
+    case "scales": lay = layoutScales(P, S); break;
+    case "modular": lay = layoutModular(P, S, R); break;
+    case "bond": lay = layoutBond(P, S, ruleCycle, R); break;
     default: lay = layoutRows(P, S, ruleCycle, R);
   }
   if (P.rotate) for (const c of lay.cells) {
     const p = c.poly;
     for (let i = 0; i < p.length; i += 2) { const t = p[i]; p[i] = p[i + 1]; p[i + 1] = t; }
+    if (c.terms) for (const t of c.terms) { const x = t.x; t.x = t.y; t.y = x; }
   }
   return lay;
 }
@@ -390,6 +691,29 @@ export function ruleMat(rules, row, col) {
   return L.set.has(p) ? L.ins : L.base;
 }
 
+// ───────── декор элементов (пэчворк / калейдоскоп) ─────────
+export const DECORS = [
+  ["none", "нет"], ["circle", "круг"], ["ring", "кольцо"], ["diamond", "ромб"], ["cross", "крест"], ["star", "звезда"],
+  ["flower", "цветок"], ["frame", "рамка"], ["truchet", "дуги (трюше)"], ["diag", "диагональ"], ["quarter", "четверть круга"],
+];
+// знаковое расстояние до края фигуры в координатах элемента u, v ∈ [−1, 1] (> 0 — внутри)
+function decorSD(code, u, v) {
+  const au = Math.abs(u), av = Math.abs(v), rr = Math.hypot(u, v);
+  switch (code) {
+    case 1: return 0.6 - rr;
+    case 2: return 0.1 - Math.abs(rr - 0.55);
+    case 3: return (0.7 - au - av) * 0.7071;
+    case 4: return Math.min(0.14 - Math.min(au, av), 0.8 - Math.max(au, av));
+    case 5: return (0.8 - Math.sqrt(au) - Math.sqrt(av)) * 0.5;
+    case 6: { const c = 0.34; return Math.max(c - Math.hypot(au - c, av), c - Math.hypot(au, av - c)); }
+    case 7: return 0.07 - Math.abs(Math.max(au, av) - 0.72);
+    case 8: return 0.13 - Math.min(Math.abs(Math.hypot(u + 1, v + 1) - 1), Math.abs(Math.hypot(u - 1, v - 1) - 1));
+    case 9: return 0.16 - Math.abs(u - v) * 0.7071;
+    case 10: return 1.0 - Math.hypot(u + 1, v + 1);
+  }
+  return -1;
+}
+
 // ───────── растр: владелец пикселя и расстояние до края ячейки ─────────
 function rasterize(cells, N, S, P, R) {
   const k = N / S;
@@ -400,6 +724,29 @@ function rasterize(cells, N, S, P, R) {
   const A = new Float64Array(64), B = new Float64Array(64), C = new Float64Array(64), rowC = new Float64Array(64);
   const cx = new Float32Array(cells.length), cy = new Float32Array(cells.length);
   const cw = new Float32Array(cells.length), chh = new Float32Array(cells.length);
+  // ячейка из кругов (чешуя): d = min(R − |p − c| для «внутри», |p − c| − R для «снаружи»)
+  function rasterTerms(T, ci, minx, maxx, miny, maxy) {
+    const nt = T.length, TK = new Int8Array(nt), TX = new Float64Array(nt), TY = new Float64Array(nt), TR = new Float64Array(nt);
+    T.forEach((t, i) => { TK[i] = t.k; TX[i] = t.x; TY[i] = t.y; TR[i] = t.r - (irr > 0 && t.k === 1 ? R() * Math.min(irr, 0.08 * t.r) : 0); });
+    const x0 = Math.floor(minx * k) - 1, y0 = Math.floor(miny * k) - 1;
+    const x1 = Math.min(Math.ceil(maxx * k) + 1, x0 + N), y1 = Math.min(Math.ceil(maxy * k) + 1, y0 + N);
+    for (let py = y0; py < y1; py++) {
+      const yy = (py + 0.5) / k, wy = mod(py, N) * N;
+      let wx = mod(x0, N);
+      for (let px = x0; px < x1; px++) {
+        const xx = (px + 0.5) / k, idx = wy + wx, cur = best[idx];
+        let d = 1e30;
+        for (let e = 0; e < nt && d > cur; e++) {
+          const r = Math.hypot(xx - TX[e], yy - TY[e]), de = TK[e] === 1 ? TR[e] - r : r - TR[e];
+          if (e === 0) d = de;
+          else if (rc > 0) { const h = rc - Math.abs(d - de); d = (d < de ? d : de) - (h > 0 ? (h * h) / (4 * rc) : 0); }
+          else if (de < d) d = de;
+        }
+        if (d > cur) { best[idx] = d; id[idx] = ci; }
+        if (++wx === N) wx = 0;
+      }
+    }
+  }
   for (let ci = 0; ci < cells.length; ci++) {
     const p = cells[ci].poly, nv = p.length / 2;
     let mx = 0, my = 0, minx = 1e30, maxx = -1e30, miny = 1e30, maxy = -1e30;
@@ -410,6 +757,7 @@ function rasterize(cells, N, S, P, R) {
     }
     mx /= nv; my /= nv;
     cx[ci] = mod(mx, S); cy[ci] = mod(my, S); cw[ci] = maxx - minx; chh[ci] = maxy - miny;
+    if (cells[ci].terms) { rasterTerms(cells[ci].terms, ci, minx, maxx, miny, maxy); continue; }
     // вписанный радиус от центра: отступы колотых граней не больше четверти — камень не схлопнется
     let inr = 1e30;
     for (let v = 0; v < nv; v++) {
@@ -541,6 +889,8 @@ export function generate(Pin, N, opt) {
       while (m < nMat - 1 && r >= w[m]) { r -= w[m]; m++; }
       mat[c] = m;
     }
+  } else if (P.colorMode === "parts") {
+    for (let c = 0; c < nc; c++) mat[c] = (cells[c].part || 0) % nMat;
   } else if (rules && rules.ok) {
     for (let c = 0; c < nc; c++) mat[c] = ruleMat(rules, cells[c].row, cells[c].col);
   }
@@ -574,6 +924,16 @@ export function generate(Pin, N, opt) {
   }
   const mMetal = mats.map((m) => (num(m.metal, 0) >= 0.5 ? 255 : 0));
   const mEmit = mats.map((m) => clamp(num(m.emit, 0), 0, 1));
+  const mRaise = mats.map((m) => num(m.raise, 0)), mSlope = mats.map((m) => num(m.slope, 0));
+  const mDecor = mats.map((m) => Math.max(0, DECORS.findIndex((d) => d[0] === m.decor)));
+  const mDecRGB = mats.map((m) => hexToRgb(m.decorColor || "#2f3a4a").map((v) => v * 255));
+  const cVoid = new Uint8Array(nc), cRot = new Uint8Array(nc), cAA = new Float32Array(nc);
+  const Rd = rng(P.seed * 7919 + 53);
+  for (let c = 0; c < nc; c++) {
+    cVoid[c] = cells[c].void ? 1 : 0;
+    cRot[c] = Math.floor(Rd() * 4);
+    cAA[c] = 0.5 * Math.min(ras.cw[c], ras.ch[c]) * (N / S);
+  }
 
   // карты
   prog("карты", 0.3);
@@ -615,27 +975,37 @@ export function generate(Pin, N, opt) {
       let dd = best[i] - jh;
       if (chipA > 0) { const q = 0.5 + 0.35 * Ch[px]; dd -= chipA * (q < 0 ? 0 : q > 1 ? 1 : q); }
       let a = dd * k + 0.5;
-      a = a < 0 ? 0 : a > 1 ? 1 : a;
+      a = a < 0 || cVoid[c] ? 0 : a > 1 ? 1 : a;
       const t = ch > 0 ? (dd <= 0 ? 0 : dd < ch ? dd / ch : 1) : 1;
       const off = ch > 0 ? (roundP ? ch * (1 - Math.sqrt(1 - (1 - t) * (1 - t))) : ch * (1 - t)) : 0;
       let lx = x - cxs[c], ly = y - cys[c];
       if (lx > half) lx -= S; else if (lx < -half) lx += S;
       if (ly > half) ly -= S; else if (ly < -half) ly += S;
       const g = G[px], rel = Re[px];
-      const hF = lift[c] + tx[c] * lx + ty[c] * ly + relief * rel * (0.55 + 0.45 * t) - off + 0.02 * g;
-      const hJ = -jd + 0.25 * g;
+      let hF = lift[c] + tx[c] * lx + ty[c] * ly + relief * rel * (0.55 + 0.45 * t) - off + 0.02 * g + mRaise[m];
+      if (mSlope[m]) hF += (mSlope[m] * lx) / Math.max(ras.cw[c], 1);
+      const hJ = (cVoid[c] ? -3 * jd - 15 : -jd) + 0.25 * g; // пустота ажурной кладки — глубже шва
       h[i] = hJ + (hF - hJ) * a;
       if (a > 0.5) faceCnt++;
 
       // цвет
       let lum = (1 + grainA * g + mottleA * Mo[px]) * (1 - edgeDark * (1 - t)) * (1 + relShade * rel);
       let r = cr[c], gg = cg[c], b = cb[c], rough = cRough[c] + 0.03 * Ro[px];
+      if (mDecor[m]) {
+        // декор в локальных координатах элемента [-1, 1], поворот на 90°·k своё для каждого элемента
+        let u = lx / (0.5 * Math.max(ras.cw[c], 1)), v = ly / (0.5 * Math.max(ras.ch[c], 1));
+        const rt = cRot[c];
+        if (rt === 1) { const t2 = u; u = v; v = -t2; } else if (rt === 2) { u = -u; v = -v; } else if (rt === 3) { const t2 = u; u = -v; v = t2; }
+        let da = decorSD(mDecor[m], u, v) * cAA[c] + 0.5;
+        da = da < 0 ? 0 : da > 1 ? 1 : da;
+        if (da > 0) { const dcol = mDecRGB[m]; r += (dcol[0] - r) * da; gg += (dcol[1] - gg) * da; b += (dcol[2] - b) * da; }
+      }
       if (Sp) {
         const s = Sp[px];
         if (s > spThr) { lum *= 1 - spC; rough += 0.04; }
         else if (s < -spThr) { r += (255 - r) * spC; gg += (255 - gg) * spC; b += (255 - b) * spC; rough -= 0.04; }
       }
-      const jl = 1 + 0.12 * g;
+      const jl = (1 + 0.12 * g) * (cVoid[c] ? 0.28 : 1);
       diffuse[o] = jc0 * jl + (r * lum - jc0 * jl) * a;
       diffuse[o + 1] = jc1 * jl + (gg * lum - jc1 * jl) * a;
       diffuse[o + 2] = jc2 * jl + (b * lum - jc2 * jl) * a;
@@ -725,7 +1095,7 @@ export function generate(Pin, N, opt) {
       }
     }
     checks.push({
-      level: pairs.size ? (P.colorMode === "mix" ? "info" : "warn") : "ok",
+      level: pairs.size ? (P.noTouch ? "warn" : "info") : "ok",
       text: pairs.size ? `Вставки соприкасаются: ${pairs.size} пар(ы) (стороны/углы, с учётом стыка)` : "Вставки не соприкасаются ни сторонами, ни углами (с учётом стыка)",
     });
   }
@@ -760,6 +1130,52 @@ export function generate(Pin, N, opt) {
       ms: Date.now() - T.start, msRaster: T.raster, msShade: T.shade,
     },
   };
+}
+
+// ───────── миниатюры пресетов ─────────
+// Параметры для миниатюры: та же раскладка на плоскости plane × plane мм (по умолчанию 1 × 1 м)
+export function thumbParams(preset, plane, res) {
+  const P = JSON.parse(JSON.stringify(Object.assign({}, DEFAULTS, preset.p)));
+  plane = plane || preset.thumb || 1000;
+  const sc = plane / (num(P.size, 4000) || 4000);
+  P.size = plane;
+  if (P.countX > 0) P.countX = Math.max(1, Math.round(P.countX * sc));
+  if (P.countY > 0) P.countY = Math.max(1, Math.round(P.countY * sc));
+  // шов на миниатюре не тоньше ~0.6 px (px — сторона/res): шаг элемента тот же, элемент чуть меньше
+  const jMin = (plane / (res || 160)) * 0.6, d = jMin - num(P.joint, 0);
+  if (d > 0 && P.layout !== "voronoi") {
+    P.joint = jMin;
+    P.ex = Math.max(1, P.ex - d); P.ey = Math.max(1, P.ey - d);
+    if (P.layout === "bond") P.ez = Math.max(1, num(P.ez, 65) - d);
+  }
+  P.paint = null;
+  return P;
+}
+
+// освещённый вид (свет сверху слева), с уменьшением в down раз — для миниатюр и проверок
+export function litImage(r, N, down) {
+  down = down || 1;
+  const M = Math.floor(N / down), out = new Uint8ClampedArray(M * M * 4);
+  const L = [-0.55, -0.55, 0.63], ll = Math.hypot(...L), Lx = L[0] / ll, Ly = L[1] / ll, Lz = L[2] / ll;
+  const Hl = Math.hypot(Lx, Ly, Lz + 1), Hx = Lx / Hl, Hy = Ly / Hl, Hz = (Lz + 1) / Hl;
+  const acc = new Float32Array(3);
+  for (let y = 0; y < M; y++) for (let x = 0; x < M; x++) {
+    acc.fill(0);
+    for (let dy = 0; dy < down; dy++) for (let dx = 0; dx < down; dx++) {
+      const i = ((y * down + dy) * N + x * down + dx) * 4;
+      const nx = r.normal[i] / 127.5 - 1, ny = r.normal[i + 1] / 127.5 - 1, nz = r.normal[i + 2] / 127.5 - 1;
+      const ndl = Math.max(0, nx * Lx + ny * Ly + nz * Lz), rough = Math.max(0.05, r.erm[i + 1] / 255);
+      const ndh = Math.max(0, nx * Hx + ny * Hy + nz * Hz), sp = Math.pow(ndh, 2 / (rough ** 4) + 1) * (1 - rough) * 0.6;
+      for (let c = 0; c < 3; c++) {
+        const al = Math.pow(r.diffuse[i + c] / 255, 2.2), v = al * (ndl * 1.55 + 0.14) + sp + al * (r.erm[i] / 255) * 2;
+        acc[c] += v / (1 + v * 0.35);
+      }
+    }
+    const o = (y * M + x) * 4, n = down * down;
+    for (let c = 0; c < 3; c++) out[o + c] = 255 * Math.pow(Math.min(1, acc[c] / n * 1.2), 1 / 2.2);
+    out[o + 3] = 255;
+  }
+  return out;
 }
 
 export const _internal = { noiseRows, rasterize, polyCentroid };
