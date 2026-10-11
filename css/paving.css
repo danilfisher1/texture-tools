@@ -1,0 +1,74 @@
+/* Вкладка «Мощение» — в стиле остальных панелей */
+#panel-paving { padding: 8px; overflow: hidden; }
+.pv-layout { display: flex; gap: 8px; flex: 1; min-height: 0; height: 100%; }
+.pv-side { width: 340px; flex-shrink: 0; overflow-y: auto; max-height: 100%; padding-right: 2px; }
+.pv-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.pv-lab { min-width: 92px !important; }
+.pv-wide { width: 100%; }
+.pv-check { display: inline-flex; align-items: center; min-width: 0 !important; color: #bbb; cursor: pointer; }
+.pv-color { width: 34px; height: 20px; padding: 0; border: 1px solid #111; background: #1e1e1e; cursor: pointer; }
+.pv-fit, .pv-names, .pv-help {
+  white-space: pre-wrap;
+  font-family: Consolas, monospace;
+  font-size: 10.5px;
+  padding: 4px 8px 6px;
+  color: #9cf;
+}
+.pv-help { color: #889; padding: 0; line-height: 1.45; }
+.pv-names { padding: 2px 8px 4px; }
+.pv-rules {
+  width: 100%;
+  background: #1e1e1e;
+  border: 1px solid #000;
+  color: #ddd;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  padding: 4px;
+  resize: vertical;
+}
+.pv-err { color: #f77; padding: 0 8px; font-size: 11px; }
+
+.pv-mats .pv-mat { gap: 4px; padding: 3px 8px; border-bottom: 1px solid #2c2c2c; flex-wrap: nowrap; }
+.pv-mats .pv-mat b { color: #9ab; width: 12px; }
+.pv-weight { display: inline-flex; gap: 3px; align-items: center; color: #777; }
+.pv-x { padding: 1px 6px; }
+
+.pv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  background: #353535;
+  border: 1px solid #1a1a1a;
+  padding: 4px 6px;
+  flex-shrink: 0;
+}
+.pv-toolbar .btn { padding: 3px 8px; }
+.pv-toolbar .btn.active { background: #3a4a5a; color: #fff; border-color: #1a1a1a; }
+.pv-toolbar .slider { max-width: 90px; }
+.pv-sep { width: 1px; height: 18px; background: #222; margin: 0 4px; }
+
+.pv-canvas-wrap { position: relative; flex: 1; min-height: 200px; background: #111; border: 1px solid #1a1a1a; }
+.pv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.pv-canvas:active { cursor: grabbing; }
+.pv-canvas.painting { cursor: crosshair; }
+.pv-busy {
+  display: none;
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #ccc;
+  padding: 3px 8px;
+  font-family: Consolas, monospace;
+  pointer-events: none;
+}
+
+.pv-checks-group { margin-bottom: 0; flex-shrink: 0; }
+.pv-checks { max-height: 150px; overflow-y: auto; background: #1e1e1e; padding: 4px 0; }
+.pv-chk { padding: 2px 8px; font-family: Consolas, monospace; font-size: 11px; color: #bbb; }
+.pv-chk.ok { color: #7c7; }
+.pv-chk.warn { color: #db6; }
+.pv-chk.err { color: #f66; }
+.pv-chk.info { color: #889; }
