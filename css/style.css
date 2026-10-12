@@ -455,3 +455,8 @@ select.sel {
   padding: 20px 8px;
   text-align: center;
 }
+
+/* числовые поля можно тянуть мышью (js/scrub.js) */
+input[type="number"] { cursor: ns-resize; }
+input[type="number"]:focus { cursor: text; }
+html.scrubbing, html.scrubbing * { cursor: ns-resize !important; user-select: none !important; }
