@@ -717,6 +717,12 @@ function decorSD(code, u, v) {
   return -1;
 }
 
+const ROT_STEPS = { r180: 180, r90: 90, r45: 45, r30: 30, r15: 15, rany: 0 };
+export const ROT_MODES = [
+  ["auto", "как у материала"], ["along", "вдоль элемента"], ["fixed", "без поворота"], ["r180", "случайно 180°"],
+  ["r90", "случайно 90°"], ["r45", "случайно 45°"], ["r30", "случайно 30°"], ["r15", "случайно 15°"], ["rany", "случайно любой"],
+];
+
 // ───────── выборка текстур (размеры — степени двойки, заворот по маске) ─────────
 function bil1(m, u, v, c) {
   const w = m.w, hh = m.h, d = m.data;
@@ -977,6 +983,14 @@ export function generate(Pin, N, opt) {
       o.ku = o.C.w / o.scale; o.kn = o.Nm.w / o.scale; o.kr = o.Rg.w / o.scale;
     } else if (lib && lib.tex) o.proc = "smooth"; // текстура не загрузилась — ровный средний цвет
     // roughness слота: средняя по материалу = своя (если задана), рисунок карты сохраняется
+    // поворот текстуры: auto — как у материала (дерево вдоль, камень случайно 90°), along — вдоль элемента,
+    // fixed — один угол, rN — случайно кратно N°, rany — любой угол; rotAngle — добавочный угол, °
+    o.rotMode = sm.rotMode || "auto";
+    o.rotBase = (num(sm.rotAngle, 0) * Math.PI) / 180;
+    // оттенок: средний цвет слота становится цветом tint, рисунок текстуры сохраняется (tintAmt, %)
+    const ta = clamp(num(sm.tintAmt, 0), 0, 100) / 100;
+    o.tint = sm.tint && ta > 0 ? { c: hexToRgb(sm.tint).map((v) => v * 255), a: ta } : null;
+    o.refLum = Math.max(0.02, tx ? o.meanLum : 0.299 * o.base[0] + 0.587 * o.base[1] + 0.114 * o.base[2]);
     o.rMean = tx ? clamp(num(tx.roughMean, 0.5), 0, 1) : 0;
     o.roughAuto = clamp(o.r0 * o.rMean + o.r1, 0, 1);
     if (lib && sm.rough != null && sm.rough !== "" && Number.isFinite(+sm.rough)) o.r1 = clamp(+sm.rough, 0, 1) - o.r0 * o.rMean;
@@ -1007,7 +1021,15 @@ export function generate(Pin, N, opt) {
     ty[c] = ((Rc() * 2 - 1) * num(P.tilt, 0)) / Math.max(ras.ch[c], 1);
     lift[c] = (Rc() * 2 - 1) * num(P.lift, 0);
     // текстура: свой случайный кусок и поворот для каждого элемента; дерево — вдоль длинной стороны
-    const phi = s.dir ? ras.cang[c] + (Rc() < 0.5 ? 0 : Math.PI) : Math.floor(Rc() * 4) * (Math.PI / 2);
+    let phi;
+    const rm = s.rotMode;
+    if (rm === "fixed") phi = s.rotBase;
+    else if (rm === "along" || (rm === "auto" && s.dir)) phi = ras.cang[c] + s.rotBase + (Rc() < 0.5 ? 0 : Math.PI);
+    else if (rm === "auto") phi = Math.floor(Rc() * 4) * (Math.PI / 2);
+    else {
+      const st = ROT_STEPS[rm] || 0;
+      phi = s.rotBase + ((st ? Math.floor(Rc() * Math.round(360 / st)) * st : Rc() * 360) * Math.PI) / 180;
+    }
     cCos[c] = Math.cos(phi); cSin[c] = Math.sin(phi);
     cOx[c] = Rc() * s.scale; cOy[c] = Rc() * s.scale;
   }
@@ -1134,6 +1156,10 @@ export function generate(Pin, N, opt) {
           } else if (s.proc === "glass") lum *= 1 + 0.03 * Mo[px] + 0.02 * g;
           else if (s.proc === "smooth") lum *= 1 + 0.006 * Mo[px];
           if (s.emit) emit = s.emit;
+        }
+        if (s.tint) { // оттенок слота: яркость пикселя сохраняется, цвет — заданный
+          const L = (0.299 * r + 0.587 * gg + 0.114 * b) / 255 / s.refLum, tc = s.tint.c, ta = s.tint.a;
+          r += (tc[0] * L - r) * ta; gg += (tc[1] * L - gg) * ta; b += (tc[2] * L - b) * ta;
         }
         if (s.fin.ribs) { // рифление вдоль длинной стороны
           const ang = ras.cang[c], across = -Math.sin(ang) * lx + Math.cos(ang) * ly, rb = s.fin.ribs;

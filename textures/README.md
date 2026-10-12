@@ -9,7 +9,6 @@
 |---|---|
 | [Bamboo002B](https://ambientcg.com/view?id=Bamboo002B) | Бамбуковый паркет |
 | [Concrete003](https://ambientcg.com/view?id=Concrete003) | Дагестанский ракушечник, Вулканический туф, шов: Клинкерный раствор с трассом |
-| [Concrete008](https://ambientcg.com/view?id=Concrete008) | Архитектурный бетон |
 | [Concrete016](https://ambientcg.com/view?id=Concrete016) | Микробетон |
 | [Concrete025](https://ambientcg.com/view?id=Concrete025) | Базальт, шов: Каменный шов на растворе |
 | [Concrete031](https://ambientcg.com/view?id=Concrete031) | Браер «Старый город», ColiseumGres, Бетонные плиты TopFacs |

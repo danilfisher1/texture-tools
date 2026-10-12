@@ -1,5 +1,5 @@
 // Вкладка «Мощение»: узор + материалы + шов → воркер → WebGL-превью; экспорт Diffuse / ERM / Normal DX в PNG 24 bit.
-import { DEFAULTS, LAYOUTS, DECORS } from "./gen.js";
+import { DEFAULTS, LAYOUTS, DECORS, ROT_MODES } from "./gen.js";
 import { Viewer, VIEW_MODES } from "./view.js";
 import { PRESETS, PRESET_TABS, PATTERN_KEYS } from "./presets.js";
 import { MATERIALS, MAT_CATS, MAT_BY_ID } from "./materials.js";
@@ -356,6 +356,16 @@ function buildSlots() {
     rIn.addEventListener("input", () => { if (rIn.value !== "" && Number.isFinite(+rIn.value)) { sm.rough = Math.min(1, Math.max(0, +rIn.value)); rIn.classList.remove("pv-auto"); rReset.style.display = ""; save(); schedule(); } });
     const rReset = h("button", { class: "btn pv-x", title: "вернуть roughness материала", style: sm.rough == null ? "display:none" : "", onclick: (ev) => { ev.stopPropagation(); delete sm.rough; save(); buildSlots(); schedule(0); } }, "↺");
     slotRough[i] = { inp: rIn, sm };
+    // оттенок: цвет + сила, %; при первом выборе цвета сила 100 %
+    const tAmt = sIn("tintAmt", 0, 0, 100, 5, "Сила оттенка, %: 100 — средний цвет слота = выбранному, рисунок текстуры сохраняется");
+    const tCol = h("input", { type: "color", class: "pv-color", title: "Оттенок материала слота", value: sm.tint || (lib && lib.color) || "#c8b89a" });
+    tCol.addEventListener("click", (ev) => ev.stopPropagation());
+    tCol.addEventListener("input", () => { sm.tint = tCol.value; if (!(+sm.tintAmt > 0)) { sm.tintAmt = 100; tAmt.value = 100; } save(); schedule(250); });
+    const rotSel = h("select", { class: "sel", title: "Поворот текстуры на элементах слота" }, ROT_MODES.map(([v, t]) => h("option", { value: v }, t)));
+    rotSel.value = sm.rotMode || "auto";
+    rotSel.addEventListener("click", (ev) => ev.stopPropagation());
+    rotSel.addEventListener("change", () => { sm.rotMode = rotSel.value; save(); schedule(0); });
+    const rotAng = sIn("rotAngle", 0, -180, 180, 1, "Добавочный угол поворота текстуры, °");
     const mCb = h("input", { type: "checkbox", title: "Metallic слота (B в ERM): металл = 1" });
     mCb.checked = (sm.metal != null ? +sm.metal : lib ? lib.metal || 0 : 0) >= 0.5;
     mCb.addEventListener("click", (ev) => ev.stopPropagation());
@@ -369,7 +379,10 @@ function buildSlots() {
       h("div", { class: "pv-slot-ctrl" }, scBox, hBox,
         h("span", { class: "pv-weight" }, "R", rIn, rReset),
         h("label", { class: "pv-check pv-weight" }, mCb, "металл"),
-        wBox)));
+        wBox),
+      h("div", { class: "pv-slot-ctrl" },
+        h("span", { class: "pv-weight" }, "оттенок", tCol, tAmt, "%"),
+        h("span", { class: "pv-weight" }, "поворот", rotSel, rotAng, "°"))));
   });
   const cur = P.materials[activeSlot] && MAT_BY_ID[P.materials[activeSlot].lib];
   matDesc.textContent = cur ? `Слот ${activeSlot + 1}: ${cur.name} — ${cur.desc}` : `Слот ${activeSlot + 1}: выберите материал ниже`;
@@ -393,7 +406,7 @@ function buildMatGallery() {
 }
 function assignMaterial(mt) {
   const sm = P.materials[activeSlot] || (P.materials[activeSlot] = {});
-  for (const k of ["color", "rough", "metal", "vary", "roughAdj"]) delete sm[k];
+  for (const k of ["color", "rough", "metal", "vary", "roughAdj", "tint", "tintAmt"]) delete sm[k]; // поворот и масштаб слота остаются
   sm.lib = mt.id;
   save(); buildSlots(); schedule(0);
   setStatus(`Мощение: слот ${activeSlot + 1} — ${mt.name} (текстура загружается при первом выборе)`);
@@ -490,7 +503,7 @@ side.append(
     ]),
   ]),
   group("Материалы", [
-    h("div", { class: "hint pv-desc" }, "Слот = материал узора (1 — основной). Выберите слот и щёлкните материал в библиотеке. × — масштаб текстуры, ↑ — высота элементов слота."),
+    h("div", { class: "hint pv-desc" }, "Слот = материал узора (1 — основной). Выберите слот и щёлкните материал в библиотеке. × — масштаб текстуры, ↑ — высота элементов, R — roughness, оттенок — свой цвет материала, поворот — как ложится текстура на элементы."),
     slotsBox,
     row(null, [h("button", { class: "btn", onclick: () => { if (P.materials.length < MAX_MAT) { P.materials.push(clone(P.materials[P.materials.length - 1])); activeSlot = P.materials.length - 1; save(); buildSlots(); schedule(0); } } }, "+ слот")]),
     matDesc, matTabs, matGallery,

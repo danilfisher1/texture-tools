@@ -210,6 +210,20 @@ test("шов: своя roughness и metallic попадают в ERM", () => {
   assert.ok(Math.abs(g / n / 255 - 0.1) < 0.05, "roughness шва " + (g / n / 255).toFixed(3));
 });
 
+test("слот: оттенок задаёт средний цвет, режимы поворота работают", () => {
+  const N = 96, P = P0({ layout: "stack", ex: 400, ey: 400, joint: 2, ao: 0, materials: [{ lib: "epoxy", tint: "#d6c3a2", tintAmt: 100 }] });
+  const r = generate(P, N, {});
+  const avg = [0, 0, 0];
+  let n = 0;
+  for (let i = 0; i < N * N; i++) if (r.erm[i * 4 + 2] === 0 && r.diffuse[i * 4] > 120) { for (let c = 0; c < 3; c++) avg[c] += r.diffuse[i * 4 + c]; n++; }
+  const want = [0xd6, 0xc3, 0xa2];
+  for (let c = 0; c < 3; c++) assert.ok(Math.abs(avg[c] / n - want[c]) < 12, `канал ${c}: ${(avg[c] / n).toFixed(0)} ≠ ${want[c]}`);
+  for (const rotMode of ["auto", "along", "fixed", "r180", "r90", "r45", "r30", "r15", "rany"]) {
+    const q = generate(P0({ layout: "bond", ex: 250, ey: 120, ez: 65, joint: 10, bond: "L\nL @2", materials: [{ lib: "stone_veneer", rotMode, rotAngle: 15 }] }), 64, {});
+    assert.equal(q.checks.filter((c) => c.level === "err").length, 0, rotMode);
+  }
+});
+
 // 6. PNG: кодируем и декодируем обратно
 function decodePNG(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset);
