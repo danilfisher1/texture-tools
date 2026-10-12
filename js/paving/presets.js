@@ -45,6 +45,15 @@ const PAVING = [
     },
   },
   {
+    // лист: «11. бетонная плитка 360×80 Готика Granite Fino, Покостовский»; ряды через один сдвинуты на 1/6 длины (60 мм),
+    // сдвиг не накапливается: A, B, A, B — кладка «L / L @0.6667» (2/3 четверти = 1/6 ложка)
+    name: "Плитка 360×80, ряды со сдвигом 1/6",
+    p: {
+      layout: "bond", bond: "L\nL @0.6667", ex: 360, ey: 80, ez: 80, joint: 3, countX: 0, countY: 0, rotate: false,
+      jointColor: "#56534d", jointDepth: 3, ao: 50, materials: [M("#a3a4a0", 4, 0.8)], colorMode: "single", base: "T_Tile_360x80_Sixth",
+    },
+  },
+  {
     name: "Плитняк нерегулярный", thumb: 2000,
     p: {
       layout: "voronoi", ex: 450, joint: 18, countX: 0, jitter: 90, relax: 2, chamfer: 8, profile: "round", corner: 20,
@@ -189,6 +198,7 @@ const SUGGEST = {
   "Плитка Тип 2": { slots: ["profi_lightgrey"], j: J("polymer_sand", "raked", 3) },
   "Брусчатка колотая": { slots: ["pokostovsky"], j: J("polymer_sand", "raked", 8) },
   "Бетонные плиты 600": { slots: ["profi_lightgrey"], j: J("polymer_sand", "raked", 3) },
+  "Плитка 360×80": { slots: ["gotika_fino_pokostovsky"], j: J("polymer_sand", "raked", 3) },
   "Плитняк": { slots: ["sandstone_grey_green"], j: J("stone_mortar", "concave", 4) },
   "Ёлочка 45° 200": { slots: ["profi_grey", "gabbro"], j: J("polymer_sand", "raked", 3) },
   "Ёлочка 90° 200": { slots: ["gotika_klinker"], j: J("polymer_sand", "raked", 3) },
