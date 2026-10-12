@@ -956,8 +956,9 @@ export function generate(Pin, N, opt) {
     const o = {
       lib, tx, base: hexToRgb((lib && lib.color) || sm.color || "#888888"),
       vary: clamp(num(sm.vary, 0), 0, 50) / 100, // разброс тона — только если задан в тонкой настройке
-      r0: lib ? lib.r[0] : 0, r1: (lib ? lib.r[1] : num(sm.rough, 0.8)) + num(sm.roughAdj, 0),
-      metal: num(lib ? lib.metal : sm.metal, 0) >= 0.5 ? 255 : 0,
+      r0: lib ? lib.r[0] : 0, r1: lib ? lib.r[1] : num(sm.rough, 0.8),
+      // metallic: свой у слота, иначе из библиотеки (0/1)
+      metal: num(sm.metal != null ? sm.metal : lib ? lib.metal : 0, 0) >= 0.5 ? 255 : 0,
       emit: clamp(num(sm.emit, 0), 0, 1), emitTex: !!(lib && lib.emitTex),
       raise: num(sm.raise, 0), slope: num(sm.slope, 0),
       decor: Math.max(0, DECORS.findIndex((d) => d[0] === sm.decor)), decRGB: hexToRgb(sm.decorColor || "#2f3a4a").map((v) => v * 255),
@@ -975,6 +976,10 @@ export function generate(Pin, N, opt) {
       o.base = tx.mean.rgb.map((v) => v / 255);
       o.ku = o.C.w / o.scale; o.kn = o.Nm.w / o.scale; o.kr = o.Rg.w / o.scale;
     } else if (lib && lib.tex) o.proc = "smooth"; // текстура не загрузилась — ровный средний цвет
+    // roughness слота: средняя по материалу = своя (если задана), рисунок карты сохраняется
+    o.rMean = tx ? clamp(num(tx.roughMean, 0.5), 0, 1) : 0;
+    o.roughAuto = clamp(o.r0 * o.rMean + o.r1, 0, 1);
+    if (lib && sm.rough != null && sm.rough !== "" && Number.isFinite(+sm.rough)) o.r1 = clamp(+sm.rough, 0, 1) - o.r0 * o.rMean;
     return o;
   });
 
@@ -1304,6 +1309,7 @@ export function generate(Pin, N, opt) {
     info: {
       countText: lay.countText, elemText: lay.elemText, cells: nc, rows: lay.rows, cols: lay.cols, painted, hMin, hMax,
       ms: Date.now() - T.start, msRaster: T.raster, msShade: T.shade,
+      slots: slot.map((s) => ({ roughAuto: Math.round(s.roughAuto * 100) / 100, metal: s.metal ? 1 : 0 })),
     },
   };
 }

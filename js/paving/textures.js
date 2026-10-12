@@ -94,7 +94,7 @@ const colorCache = new Map(); // asset|коррекция → Promise<{ color mi
 function loadSet(asset) {
   if (!setCache.has(asset)) {
     const base = texBase() + asset + "/";
-    const p = Promise.all(["normal", "rough", "disp"].map((k) => loadImage(base + k + ".webp"))).then(([n, r, d]) => ({ normal: buildMips(n), rough: buildMips(r), disp: buildMips(d) }));
+    const p = Promise.all(["normal", "rough", "disp"].map((k) => loadImage(base + k + ".webp"))).then(([n, r, d]) => ({ normal: buildMips(n), rough: buildMips(r), disp: buildMips(d), roughMean: meanOf(r).rgb[0] / 255 }));
     p.catch(() => setCache.delete(asset));
     setCache.set(asset, p);
   }

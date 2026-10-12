@@ -192,6 +192,16 @@ for (const prof of ["weathered", "weeping", "cover_strip", "zigzag", "brass_shad
   assert.equal(r.checks.filter((c) => c.level === "err").length, 0);
 });
 
+test("слот: своя roughness и metallic попадают в ERM", () => {
+  const N = 128, P = P0({ layout: "stack", ex: 500, ey: 500, joint: 2, materials: [{ lib: "carrara", rough: 0.2, metal: 1 }] });
+  const r = generate(P, N, {});
+  let g = 0, b = 0, n = 0;
+  for (let i = 0; i < N * N; i++) if (r.erm[i * 4 + 2] === 255) { g += r.erm[i * 4 + 1]; b++; n++; }
+  assert.ok(n > N * N * 0.9, "металл почти везде, кроме шва");
+  assert.ok(Math.abs(g / n / 255 - 0.2) < 0.05, "средняя roughness " + (g / n / 255).toFixed(3));
+  assert.equal(r.info.slots[0].metal, 1);
+});
+
 // 6. PNG: кодируем и декодируем обратно
 function decodePNG(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset);

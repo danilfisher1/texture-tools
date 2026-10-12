@@ -1,7 +1,7 @@
 /* Вкладка «Мощение» — в стиле остальных панелей */
 #panel-paving { padding: 8px; overflow: hidden; }
 .pv-layout { display: flex; gap: 0; flex: 1; min-height: 0; height: 100%; }
-.pv-side { width: 340px; flex-shrink: 0; overflow-y: auto; max-height: 100%; padding-right: 2px; }
+.pv-side { width: 510px; flex-shrink: 0; overflow-y: auto; max-height: 100%; padding-right: 2px; }
 .pv-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
 
 /* разделитель между настройками и превью */
@@ -148,3 +148,9 @@
 .pv-details > summary::before { content: "▸ "; color: #9ab; }
 .pv-details[open] > summary::before { content: "▾ "; }
 .pv-details { padding-bottom: 4px; }
+
+/* слот: верх — материал, низ — масштаб, высота, roughness, metallic */
+.pv-slot { flex-direction: column; align-items: stretch; gap: 3px; }
+.pv-slot-top { display: flex; align-items: center; gap: 6px; }
+.pv-slot-ctrl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding-left: 18px; }
+input.num.pv-auto { color: #888; font-style: italic; }

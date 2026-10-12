@@ -7,7 +7,7 @@ import { JOINT_FILLS, FILL_BY_ID, JOINT_PROFILES, PROFILE_GROUPS, PROFILE_BY_ID,
 
 const STORE_KEY = "texture-tools.paving.v3";
 const OLD_STORE_KEY = "texture-tools.paving.v2";
-const SIDE_KEY = "texture-tools.paving.side";
+const SIDE_KEY = "texture-tools.paving.side2"; // ширина по умолчанию стала 510 px — старое значение не берём
 const TAB_KEY = "texture-tools.paving.ptab";
 const MCAT_KEY = "texture-tools.paving.mcat";
 const THUMB_KEY = "texture-tools.paving.thumbs.v4"; // сменить версию, если меняется вид узоров
@@ -329,8 +329,11 @@ const thumbImg = (src, color) => {
   return box;
 };
 function slotName(sm) { const lib = sm && sm.lib && MAT_BY_ID[sm.lib]; return lib ? lib.name : "свой цвет " + ((sm && sm.color) || ""); }
+let slotInfo = []; // из последнего превью: roughness материала по слотам
+const slotRough = [];
 function buildSlots() {
   slotsBox.textContent = "";
+  slotRough.length = 0;
   P.materials.forEach((sm, i) => {
     const lib = sm.lib && MAT_BY_ID[sm.lib];
     const wIn = h("input", { type: "number", class: "num", min: 0, max: 100, step: 0.5, value: sm.weight || 1, title: "доля в смеси", style: "width:40px" });
@@ -346,11 +349,28 @@ function buildSlots() {
     };
     const scBox = h("span", { class: "pv-weight", title: "Масштаб текстуры: ×2 — рисунок вдвое мельче (камешки терраццо, зерно гранита)" }, "×", sIn("texScale", 1, 0.1, 20, 0.1));
     const hBox = h("span", { class: "pv-weight", title: "Высота (выступ) элементов этого слота над плоскостью, мм" }, "↑", sIn("raise", 0, -50, 100, 0.5), "мм");
+    // roughness: пусто — как у материала (серым), своё значение — средняя roughness слота, рисунок карты сохраняется
+    const auto = slotInfo[i] ? slotInfo[i].roughAuto : null;
+    const rIn = h("input", { type: "number", class: "num" + (sm.rough == null ? " pv-auto" : ""), min: 0, max: 1, step: 0.01, style: "width:58px",
+      title: "Roughness слота (G в ERM): средняя по материалу; серым — значение материала", value: sm.rough != null ? sm.rough : auto != null ? auto : "" });
+    rIn.addEventListener("click", (ev) => ev.stopPropagation());
+    rIn.addEventListener("input", () => { if (rIn.value !== "" && Number.isFinite(+rIn.value)) { sm.rough = Math.min(1, Math.max(0, +rIn.value)); rIn.classList.remove("pv-auto"); rReset.style.display = ""; save(); schedule(); } });
+    const rReset = h("button", { class: "btn pv-x", title: "вернуть roughness материала", style: sm.rough == null ? "display:none" : "", onclick: (ev) => { ev.stopPropagation(); delete sm.rough; save(); buildSlots(); schedule(0); } }, "↺");
+    slotRough[i] = { inp: rIn, sm };
+    const mCb = h("input", { type: "checkbox", title: "Metallic слота (B в ERM): металл = 1" });
+    mCb.checked = (sm.metal != null ? +sm.metal : lib ? lib.metal || 0 : 0) >= 0.5;
+    mCb.addEventListener("click", (ev) => ev.stopPropagation());
+    mCb.addEventListener("change", () => { sm.metal = mCb.checked ? 1 : 0; save(); schedule(0); });
     slotsBox.append(h("div", { class: "pv-slot" + (i === activeSlot ? " active" : ""), title: lib ? lib.desc : "", onclick: () => { activeSlot = i; buildSlots(); } },
-      h("b", {}, i + 1),
-      thumbImg(lib ? `img/mat/${lib.id}.webp` : "", lib ? lib.color : sm.color),
-      h("span", { class: "pv-slot-name" }, slotName(sm)), scBox, hBox, wBox,
-      P.materials.length > 1 ? h("button", { class: "btn pv-x", title: "удалить слот", onclick: (e) => { e.stopPropagation(); P.materials.splice(i, 1); activeSlot = Math.min(activeSlot, P.materials.length - 1); P.paint = null; save(); buildSlots(); schedule(0); } }, "✕") : null));
+      h("div", { class: "pv-slot-top" },
+        h("b", {}, i + 1),
+        thumbImg(lib ? `img/mat/${lib.id}.webp` : "", lib ? lib.color : sm.color),
+        h("span", { class: "pv-slot-name" }, slotName(sm)),
+        P.materials.length > 1 ? h("button", { class: "btn pv-x", title: "удалить слот", onclick: (e) => { e.stopPropagation(); P.materials.splice(i, 1); activeSlot = Math.min(activeSlot, P.materials.length - 1); P.paint = null; save(); buildSlots(); schedule(0); } }, "✕") : null),
+      h("div", { class: "pv-slot-ctrl" }, scBox, hBox,
+        h("span", { class: "pv-weight" }, "R", rIn, rReset),
+        h("label", { class: "pv-check pv-weight" }, mCb, "металл"),
+        wBox)));
   });
   const cur = P.materials[activeSlot] && MAT_BY_ID[P.materials[activeSlot].lib];
   matDesc.textContent = cur ? `Слот ${activeSlot + 1}: ${cur.name} — ${cur.desc}` : `Слот ${activeSlot + 1}: выберите материал ниже`;
@@ -456,7 +476,6 @@ function buildSlotTuning() {
       h("div", { class: "row" }, h("b", {}, i + 1), h("span", { class: "pv-slot-name" }, slotName(sm))),
       h("div", { class: "row pv-mat2" },
         h("span", { class: "hint", title: "разброс тона по элементам, %" }, "±"), nIn("vary", 0, 0, 50, 0.5, 40),
-        h("span", { class: "hint", title: "добавка к roughness" }, "R±"), nIn("roughAdj", 0, -1, 1, 0.01, 46),
         h("span", { class: "hint", title: "emissive (оникс — по яркости камня)" }, "E"), nIn("emit", 0, 0, 1, 0.05, 40),
         h("span", { class: "hint", title: "перепад по ширине элемента, мм" }, "наклон"), nIn("slope", 0, -100, 100, 0.5, 44)),
       h("div", { class: "row pv-mat2" }, h("span", { class: "hint" }, "декор"), decor, sm.decor && sm.decor !== "none" ? dcol : null)));
@@ -476,6 +495,28 @@ side.append(
     slotsBox,
     row(null, [h("button", { class: "btn", onclick: () => { if (P.materials.length < MAX_MAT) { P.materials.push(clone(P.materials[P.materials.length - 1])); activeSlot = P.materials.length - 1; save(); buildSlots(); schedule(0); } } }, "+ слот")]),
     matDesc, matTabs, matGallery,
+  ]),
+  group("Раскладка цветов", [
+    row("Режим", [selIn("colorMode", [["single", "Один материал (слот 1)"], ["mix", "Смесь по долям"], ["parts", "По частям узора / типу кирпича"], ["rules", "Правило рядов"]])]),
+    row(null, [h("div", { class: "hint pv-help" }, "часть 1 → слот 1, часть 2 → слот 2…\nкирпич: ложок 1, тычок 2, солдатик 3, на ребро 4")], (p) => p.colorMode === "parts"),
+    row(null, [areaIn("rules", 5)], (p) => p.colorMode === "rules"),
+    h("div", {}, rulesErr),
+    row(null, [h("div", { class: "hint pv-help" },
+      "Строка = ряд сверху вниз, строки идут циклом.\n" +
+      "-  ряд из слота 1   =2  ряд из слота 2\n" +
+      "4 1  промежутки: 4 осн., вставка, 1 осн., вставка…\n" +
+      ":1121  явная последовательность слотов\n" +
+      "*3 слот вставки (по умолч. 2)   /1 основной\n" +
+      ">-1 сдвиг каждого след. такого ряда (− влево)\n" +
+      "@2 начальный сдвиг   # комментарий")], (p) => p.colorMode === "rules"),
+    row(null, [checkIn("snapRows", "Подгонять число рядов под цикл правила")], (p) => p.colorMode === "rules"),
+    row(null, [checkIn("noTouch", "Вставки не должны касаться (сторонами и углами)")], (p) => p.colorMode !== "single"),
+    row("Кисть", [
+      (() => { const c = h("input", { type: "checkbox" }); c.addEventListener("change", () => { paintOn = c.checked; canvas.classList.toggle("painting", paintOn); }); return h("label", { class: "pv-check" }, c, "красить"); })(),
+      paintSel,
+      h("button", { class: "btn", onclick: () => { P.paint = null; save(); schedule(0); } }, "Сброс"),
+    ]),
+    row(null, [h("span", { class: "hint" }, "ЛКМ по элементу — слот кисти, ПКМ — вернуть как было"), paintInfo]),
   ]),
   group("Шов", [
     row("Ширина", [numIn("joint", { min: 0, max: 100, step: 0.5 }), h("span", { class: "hint" }, "мм"), h("label", {}, "Глубина / выступ"), numIn("jointDepth", { min: 0, max: 40, step: 0.5 }), h("span", { class: "hint" }, "мм")]),
@@ -502,28 +543,6 @@ side.append(
     ...countRows,
     row(null, [checkIn("rotate", "Повернуть на 90°")]),
     fitBox,
-  ]),
-  group("Раскладка цветов", [
-    row("Режим", [selIn("colorMode", [["single", "Один материал (слот 1)"], ["mix", "Смесь по долям"], ["parts", "По частям узора / типу кирпича"], ["rules", "Правило рядов"]])]),
-    row(null, [h("div", { class: "hint pv-help" }, "часть 1 → слот 1, часть 2 → слот 2…\nкирпич: ложок 1, тычок 2, солдатик 3, на ребро 4")], (p) => p.colorMode === "parts"),
-    row(null, [areaIn("rules", 5)], (p) => p.colorMode === "rules"),
-    h("div", {}, rulesErr),
-    row(null, [h("div", { class: "hint pv-help" },
-      "Строка = ряд сверху вниз, строки идут циклом.\n" +
-      "-  ряд из слота 1   =2  ряд из слота 2\n" +
-      "4 1  промежутки: 4 осн., вставка, 1 осн., вставка…\n" +
-      ":1121  явная последовательность слотов\n" +
-      "*3 слот вставки (по умолч. 2)   /1 основной\n" +
-      ">-1 сдвиг каждого след. такого ряда (− влево)\n" +
-      "@2 начальный сдвиг   # комментарий")], (p) => p.colorMode === "rules"),
-    row(null, [checkIn("snapRows", "Подгонять число рядов под цикл правила")], (p) => p.colorMode === "rules"),
-    row(null, [checkIn("noTouch", "Вставки не должны касаться (сторонами и углами)")], (p) => p.colorMode !== "single"),
-    row("Кисть", [
-      (() => { const c = h("input", { type: "checkbox" }); c.addEventListener("change", () => { paintOn = c.checked; canvas.classList.toggle("painting", paintOn); }); return h("label", { class: "pv-check" }, c, "красить"); })(),
-      paintSel,
-      h("button", { class: "btn", onclick: () => { P.paint = null; save(); schedule(0); } }, "Сброс"),
-    ]),
-    row(null, [h("span", { class: "hint" }, "ЛКМ по элементу — слот кисти, ПКМ — вернуть как было"), paintInfo]),
   ]),
   group("Текстура", [
     row("Плоскость", [numIn("size", { min: 100, max: 100000, step: 10, w: 70 }), h("span", { class: "hint" }, "мм × мм (квадрат)")]),
@@ -686,6 +705,10 @@ function applyPreview(m) {
     setStatus("Мощение: раскладка изменилась — ручная роспись сброшена");
   }
   viewer.setMaps(m.N, m);
+  if (m.info.slots) {
+    slotInfo = m.info.slots;
+    slotRough.forEach((r, i) => { if (r.sm.rough == null && slotInfo[i] && document.activeElement !== r.inp) r.inp.value = slotInfo[i].roughAuto; });
+  }
   renderChecks(m.checks);
   fitBox.textContent = `${m.info.countText}\n${m.info.elemText}`;
   paintInfo.textContent = m.info.painted ? ` · вручную: ${m.info.painted}` : "";
