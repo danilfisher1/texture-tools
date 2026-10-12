@@ -412,8 +412,8 @@ function buildJoint() {
   fillGallery.textContent = "";
   for (const f of JOINT_FILLS) {
     fillGallery.append(h("button", { class: "pv-card" + (f.id === P.jointFill ? " active" : ""), title: f.name + " — " + f.desc, onclick: () => {
-      P.jointFill = f.id; P.jointColor = f.colors[0][1]; P.jointRough = f.r;
-      save(); buildJoint(); schedule(0);
+      P.jointFill = f.id; P.jointColor = f.colors[0][1]; P.jointRough = f.r; P.jointMetal = 0;
+      save(); buildJoint(); for (const [k, set] of controls) if (k === "jointRough" || k === "jointMetal") set(P[k]); schedule(0);
     } }, thumbImg(`img/fill/${f.id}.webp`, f.colors[0][1]), h("span", { class: "pv-card-name" }, f.name)));
   }
   profBox.textContent = "";
@@ -520,6 +520,7 @@ side.append(
   ]),
   group("Шов", [
     row("Ширина", [numIn("joint", { min: 0, max: 100, step: 0.5 }), h("span", { class: "hint" }, "мм"), h("label", {}, "Глубина / выступ"), numIn("jointDepth", { min: 0, max: 40, step: 0.5 }), h("span", { class: "hint" }, "мм")]),
+    row("Roughness", [numIn("jointRough", { min: 0, max: 1, step: 0.01 }), h("span", { class: "hint", title: "G в ERM; при выборе заполнения ставится его значение" }, "G в ERM"), checkIn("jointMetal", "металл")]),
     h("div", { class: "pv-sub" }, "Заполнение"), fillGallery, fillColors, fillDesc,
     h("div", { class: "pv-sub" }, "Профиль"), profDesc, profBox,
   ]),
@@ -585,8 +586,7 @@ side.append(
     row("Пятна (доп.)", [...rangeIn("mottle", 0, 30, 0.5), "%"]),
     row("Крапины (свой цвет)", [...rangeIn("speck", 0, 100, 1)]),
     row("Контраст крапин", [...rangeIn("speckContrast", 0, 100, 1), "%"]),
-    h("div", { class: "pv-sub" }, "Шов и карты"),
-    row("Roughness шва", [...rangeIn("jointRough", 0, 1, 0.01)]),
+    h("div", { class: "pv-sub" }, "Карты"),
     row("Сила нормали", [...rangeIn("normalStrength", 0, 5, 0.05)]),
     row("AO в Diffuse", [...rangeIn("ao", 0, 100, 1), "%"]),
     h("div", { class: "pv-sub" }, "Слоты"),

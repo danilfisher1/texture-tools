@@ -41,7 +41,7 @@ export const DEFAULTS = {
     { color: "#6e7070", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
     { color: "#cecfcb", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
   ],
-  colorMode: "single", noTouch: false,
+  colorMode: "single", noTouch: false, jointMetal: 0,
   rules: "4 1 >-1\n-\n4 2 3 >-1\n-",
   paint: null,
 };
@@ -1023,6 +1023,7 @@ export function generate(Pin, N, opt) {
   const fill = FILL_BY_ID[P.jointFill] || FILL_BY_ID.cement;
   const fx = fill.tex ? TXS.fill : null;
   const jc = hexToRgb(P.jointColor || fill.colors[0][1]), jRough = clamp(num(P.jointRough, fill.r), 0, 1);
+  const jMetal = num(P.jointMetal, 0) >= 0.5 ? 255 : 0; // metallic шва (B в ERM)
   const jc0 = jc[0] * 255, jc1 = jc[1] * 255, jc2 = jc[2] * 255;
   let fC = null, fN = null, fR = null, fD = null, fku = 0, fkn = 0, fkr = 0, fMean = 1;
   if (fx) {
@@ -1159,7 +1160,7 @@ export function generate(Pin, N, opt) {
       }
 
       // ── шов ──
-      let jr = jc0, jg = jc1, jb = jc2, jRo = jRough + 0.02 * g, jMet = 0, jdsx = 0, jdsy = 0, jdisp = 0;
+      let jr = jc0, jg = jc1, jb = jc2, jRo = jRough + 0.02 * g, jMet = jMetal, jdsx = 0, jdsy = 0, jdisp = 0;
       if (a < 1) {
         if (prof.insert && Xa < prof.insert && !cVoid[c]) { jr = 201; jg = 162; jb = 78; jRo = 0.25; jMet = 255; } // латунь
         else if (prof.cover && !cVoid[c]) { jr = 185; jg = 190; jb = 196; jRo = 0.35; jMet = 255; hJ += 0.1 * g; } // нащельник
@@ -1167,7 +1168,7 @@ export function generate(Pin, N, opt) {
           bil3(fC, x * fku, y * fku, rgb);
           const L = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 / fMean;
           jr = jc0 * L; jg = jc1 * L; jb = jc2 * L;
-          jRo = clamp(fill.r + 0.15 * (bil1(fR, x * fkr, y * fkr) / 255 - 0.5), 0, 1);
+          jRo = clamp(jRough + 0.15 * (bil1(fR, x * fkr, y * fkr) / 255 - 0.5), 0, 1);
           const nx0 = bil1(fN, x * fkn, y * fkn, 0) / 127.5 - 1, ny0 = bil1(fN, x * fkn, y * fkn, 1) / 127.5 - 1;
           const nz0 = Math.sqrt(Math.max(0.05, 1 - nx0 * nx0 - ny0 * ny0));
           jdsx = -nx0 / nz0 * 0.8; jdsy = -ny0 / nz0 * 0.8;

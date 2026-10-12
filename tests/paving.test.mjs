@@ -202,6 +202,14 @@ test("слот: своя roughness и metallic попадают в ERM", () => {
   assert.equal(r.info.slots[0].metal, 1);
 });
 
+test("шов: своя roughness и metallic попадают в ERM", () => {
+  const N = 128, r = generate(P0({ layout: "stack", ex: 60, ey: 60, joint: 20, materials: [{ lib: "carrara" }], jointFill: "cement", jointRough: 0.1, jointMetal: 1, jointProfile: "flush" }), N, {});
+  let g = 0, n = 0;
+  for (let i = 0; i < N * N; i++) if (r.erm[i * 4 + 2] === 255) { g += r.erm[i * 4 + 1]; n++; }
+  assert.ok(n > N * N * 0.3, "шов — металл, пикселей " + n);
+  assert.ok(Math.abs(g / n / 255 - 0.1) < 0.05, "roughness шва " + (g / n / 255).toFixed(3));
+});
+
 // 6. PNG: кодируем и декодируем обратно
 function decodePNG(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset);

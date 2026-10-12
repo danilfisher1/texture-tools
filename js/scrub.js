@@ -6,6 +6,23 @@
   const PX_PER_STEP = 4, SPIN_W = 18, THRESHOLD = 3;
   const decimals = (s) => { const t = String(s); const i = t.indexOf("."); return i < 0 ? 0 : t.length - i - 1; };
 
+  // ширина поля: хватает места на самое длинное значение диапазона (min, max, шаг) и текущее + стрелки
+  const fmt = (v, d) => (Number.isFinite(v) ? v.toFixed(d) : "");
+  function fitWidth(inp) {
+    if (inp.type !== "number") return;
+    const d = decimals(inp.step && inp.step !== "any" ? inp.step : 1);
+    const cand = [fmt(+inp.min, d), fmt(+inp.max, d), String(inp.value || "")].filter((s) => s && s !== "NaN");
+    const chars = Math.max(2, ...cand.map((s) => s.replace(/^-?/, "").length + (s[0] === "-" ? 1 : 0)));
+    const need = `calc(${chars + 1}ch + 26px)`;
+    if (inp.dataset.fitW !== need) { inp.style.minWidth = need; inp.dataset.fitW = need; }
+  }
+  const fitAll = (root) => { if (root.querySelectorAll) root.querySelectorAll('input[type="number"]').forEach(fitWidth); };
+  new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches && n.matches('input[type="number"]')) fitWidth(n); else fitAll(n); } })
+    .observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener("input", (e) => { if (e.target instanceof HTMLInputElement) fitWidth(e.target); }, true);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => fitAll(document));
+  else fitAll(document);
+
   document.addEventListener("pointerdown", (e) => {
     const inp = e.target;
     if (!(inp instanceof HTMLInputElement) || inp.type !== "number" || inp.disabled || inp.readOnly) return;
@@ -34,6 +51,7 @@
       else acc = target - v; // остаток копится, ничего не теряется на округлении
       if (v !== cur) {
         inp.value = v;
+        fitWidth(inp);
         inp.dispatchEvent(new Event("input", { bubbles: true }));
       }
     };
