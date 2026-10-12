@@ -7,7 +7,6 @@ import { JOINT_FILLS, FILL_BY_ID, JOINT_PROFILES, PROFILE_GROUPS, PROFILE_BY_ID,
 
 const STORE_KEY = "texture-tools.paving.v3";
 const OLD_STORE_KEY = "texture-tools.paving.v2";
-const SIDE_KEY = "texture-tools.paving.side2"; // ширина по умолчанию стала 510 px — старое значение не берём
 const TAB_KEY = "texture-tools.paving.ptab";
 const MCAT_KEY = "texture-tools.paving.mcat";
 const THUMB_KEY = "texture-tools.paving.thumbs.v4"; // сменить версию, если меняется вид узоров
@@ -601,16 +600,18 @@ const lightAz = h("input", { type: "range", class: "slider", min: 0, max: 360, s
 const lightEl = h("input", { type: "range", class: "slider", min: 3, max: 90, step: 1, value: 35, title: "высота света" });
 const gridCb = h("input", { type: "checkbox" });
 const canvasWrap = h("div", { class: "pv-canvas-wrap" }, canvas, busy);
+const hsplit = h("div", { class: "pv-hsplit", title: "Потяните, чтобы изменить высоту проверок (двойной щелчок — сброс)" });
 root.append(h("div", { class: "pv-layout" }, side, split, h("div", { class: "pv-main" },
   h("div", { class: "pv-toolbar" }, modeBtns, h("span", { class: "pv-sep" }), repBtns, h("span", { class: "pv-sep" }),
     h("label", { class: "pv-check" }, gridCb, "границы тайла"), h("span", { class: "pv-sep" }),
     h("span", { class: "hint" }, "свет"), lightAz, lightEl,
     h("button", { class: "btn", onclick: () => viewer.resetView() }, "Сброс вида")),
   canvasWrap,
+  hsplit,
   h("div", { class: "group pv-checks-group" }, h("div", { class: "group-title" }, "Проверки правил"), checksBox),
 )));
 
-// ширина панели настроек: перетаскивание разделителя, запоминается
+// ширина панели настроек: по умолчанию 560 px (CSS) при каждой загрузке, разделитель можно тянуть
 function setSideWidth(w) {
   const max = Math.max(320, root.getBoundingClientRect().width - 320);
   w = Math.round(Math.max(260, Math.min(max, w)));
@@ -618,8 +619,6 @@ function setSideWidth(w) {
   return w;
 }
 {
-  const saved = +store(SIDE_KEY);
-  if (saved) setSideWidth(saved);
   let drag0 = null;
   split.addEventListener("pointerdown", (e) => {
     split.setPointerCapture(e.pointerId);
@@ -632,11 +631,29 @@ function setSideWidth(w) {
     if (!drag0) return;
     drag0 = null;
     split.classList.remove("dragging");
-    store(SIDE_KEY, String(Math.round(side.getBoundingClientRect().width)));
   };
   split.addEventListener("pointerup", end);
   split.addEventListener("pointercancel", end);
-  split.addEventListener("dblclick", () => { side.style.width = ""; store(SIDE_KEY, ""); });
+  split.addEventListener("dblclick", () => { side.style.width = ""; }); // двойной щелчок — снова 560 px
+}
+// высота панели проверок: тянуть границу над ней (вверх — больше), по умолчанию 150 px
+{
+  let d0 = null;
+  hsplit.addEventListener("pointerdown", (e) => {
+    hsplit.setPointerCapture(e.pointerId);
+    d0 = { y: e.clientY, h: checksBox.getBoundingClientRect().height };
+    hsplit.classList.add("dragging");
+    e.preventDefault();
+  });
+  hsplit.addEventListener("pointermove", (e) => {
+    if (!d0) return;
+    const max = Math.max(80, root.getBoundingClientRect().height - 260);
+    checksBox.style.height = Math.round(Math.max(40, Math.min(max, d0.h + d0.y - e.clientY))) + "px";
+  });
+  const end = () => { d0 = null; hsplit.classList.remove("dragging"); };
+  hsplit.addEventListener("pointerup", end);
+  hsplit.addEventListener("pointercancel", end);
+  hsplit.addEventListener("dblclick", () => { checksBox.style.height = ""; });
 }
 paintSel.addEventListener("change", () => (paintMat = paintPref = +paintSel.value));
 
