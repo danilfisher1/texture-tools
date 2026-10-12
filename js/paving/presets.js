@@ -237,5 +237,5 @@ export const PRESETS = [
 // параметры узора, которые переносит пресет (материалы и шов выбираются отдельно)
 export const PATTERN_KEYS = [
   "layout", "ex", "ey", "ez", "joint", "countX", "countY", "offset", "jitter", "relax", "rotate", "snapRows", "angle", "multi", "modSizes", "bond",
-  "chamfer", "profile", "corner", "irregular", "chip", "tilt", "lift", "relief", "reliefScale", "colorMode", "rules", "noTouch",
+  "colorMode", "rules", "noTouch", // кромка и поверхность (фаска, сколы, рельеф…) — только в тонкой настройке, по умолчанию 0
 ];

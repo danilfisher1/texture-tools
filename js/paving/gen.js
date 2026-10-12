@@ -28,13 +28,13 @@ export const LAYOUTS = [
 ];
 
 export const DEFAULTS = {
-  size: 4000, seed: 1,
+  size: 3000, seed: 1,
   layout: "running", ex: 100, ey: 300, joint: 3, countX: 0, countY: 0,
   offset: "1/2", jitter: 0, relax: 1, rotate: false, snapRows: true,
   ez: 65, angle: 45, multi: 1, modSizes: "2x2 2x1 1x2 1x1", bond: "L\nL @2",
-  chamfer: 2, profile: "round", chip: 0, irregular: 0, corner: 0,
-  relief: 0, reliefScale: 6, tilt: 0.3, lift: 0.2,
-  grain: 0, mottle: 0, speck: 0, speckContrast: 30, edgeDark: 8,
+  chamfer: 0, profile: "round", chip: 0, irregular: 0, corner: 0,
+  relief: 0, reliefScale: 6, tilt: 0, lift: 0,
+  grain: 0, mottle: 0, speck: 0, speckContrast: 30, edgeDark: 0,
   jointFill: "cement", jointColor: "#bdbab3", jointProfile: "concave", jointRough: 0.92, jointDepth: 3,
   normalStrength: 1, ao: 50,
   materials: [
@@ -955,7 +955,7 @@ export function generate(Pin, N, opt) {
     const tx = lib && lib.tex ? TXS.mats[i] || null : null;
     const o = {
       lib, tx, base: hexToRgb((lib && lib.color) || sm.color || "#888888"),
-      vary: clamp(num(sm.vary, lib ? lib.vary : 4), 0, 50) / 100,
+      vary: clamp(num(sm.vary, 0), 0, 50) / 100, // разброс тона — только если задан в тонкой настройке
       r0: lib ? lib.r[0] : 0, r1: (lib ? lib.r[1] : num(sm.rough, 0.8)) + num(sm.roughAdj, 0),
       metal: num(lib ? lib.metal : sm.metal, 0) >= 0.5 ? 255 : 0,
       emit: clamp(num(sm.emit, 0), 0, 1), emitTex: !!(lib && lib.emitTex),
@@ -964,7 +964,7 @@ export function generate(Pin, N, opt) {
       disp: lib ? lib.disp : 0, nrm: lib ? lib.nrm : 0, dir: !!(lib && lib.dir),
       pal: lib && lib.pal ? lib.pal.map(hexToRgb) : null, pmode: lib ? lib.pmode : null,
       fin: (lib && lib.fin) || {}, proc: lib ? lib.proc || (lib.tex ? null : "smooth") : null,
-      scale: lib ? lib.scale : 800, legacy: !lib,
+      scale: lib ? lib.scale / clamp(num(sm.texScale, 1), 0.05, 20) : 800, legacy: !lib, // масштаб ×2 — рисунок мельче вдвое
     };
     if (tx) {
       o.lev = levelFor(tx.color, o.scale);
@@ -1206,23 +1206,24 @@ export function generate(Pin, N, opt) {
       normal[o + 3] = 255;
     }
   }
-  // рельеф карт высот текстур — в высоту (для AO и Height), нормаль его уже учла через детальный уклон
-  let hMin = 1e30, hMax = -1e30;
-  for (let i = 0; i < NN; i++) { const hv = (h[i] += best[i]); if (hv < hMin) hMin = hv; if (hv > hMax) hMax = hv; }
-
-  // AO от высоты → в Diffuse
+  // AO по геометрии (швы, выступы, наклоны) → в Diffuse; микрорельеф текстур сюда не идёт — без шума
   const aoA = clamp(num(P.ao, 0), 0, 100) / 100;
   if (aoA > 0) {
-    prog("AO", 0.88);
-    const tmp = best, bl = new Float32Array(NN), cav = new Float32Array(NN); // best свободен
-    blurWrap(h, N, Math.max(1, Math.round(2 * k)), bl, tmp);
-    for (let i = 0; i < NN; i++) { const v = bl[i] - h[i]; cav[i] = v > 0 ? 0.16 * v : 0; }
-    blurWrap(h, N, Math.max(2, Math.round(10 * k)), bl, tmp);
-    for (let i = 0; i < NN; i++) {
-      const v = bl[i] - h[i], ao = clamp(1 - aoA * (cav[i] + (v > 0 ? 0.05 * v : 0)), 0.15, 1), o = i * 4;
-      diffuse[o] *= ao; diffuse[o + 1] *= ao; diffuse[o + 2] *= ao;
+    prog("AO", 0.86);
+    const tmp = new Float32Array(NN), bl = new Float32Array(NN);
+    for (const [rad, w] of [[Math.max(1, Math.round(2 * k)), 0.16], [Math.max(2, Math.round(10 * k)), 0.05]]) {
+      blurWrap(h, N, rad, bl, tmp);
+      for (let i = 0; i < NN; i++) {
+        const v = bl[i] - h[i];
+        if (v <= 0) continue;
+        const ao = Math.max(0.15, 1 - aoA * w * v), o = i * 4;
+        diffuse[o] *= ao; diffuse[o + 1] *= ao; diffuse[o + 2] *= ao;
+      }
     }
   }
+  // рельеф карт высот текстур — в высоту (для Height), нормаль его уже учла через детальный уклон
+  let hMin = 1e30, hMax = -1e30;
+  for (let i = 0; i < NN; i++) { const hv = (h[i] += best[i]); if (hv < hMin) hMin = hv; if (hv > hMax) hMax = hv; }
 
   // ───────── проверки ─────────
   prog("проверки", 0.95);
@@ -1259,10 +1260,14 @@ export function generate(Pin, N, opt) {
         const a = id[yo + x];
         if (!mat[a]) continue;
         const xr = x === N - 1 ? 0 : x + 1, xl = x === 0 ? N - 1 : x - 1;
-        for (const bIdx of [yo + xr, yd + x, yd + xr, yd + xl]) {
-          const b = id[bIdx];
-          if (b !== a && mat[b]) pairs.add(a < b ? a * nc + b : b * nc + a);
-        }
+        let b = id[yo + xr];
+        if (b !== a && mat[b]) pairs.add(a < b ? a * nc + b : b * nc + a);
+        b = id[yd + x];
+        if (b !== a && mat[b]) pairs.add(a < b ? a * nc + b : b * nc + a);
+        b = id[yd + xr];
+        if (b !== a && mat[b]) pairs.add(a < b ? a * nc + b : b * nc + a);
+        b = id[yd + xl];
+        if (b !== a && mat[b]) pairs.add(a < b ? a * nc + b : b * nc + a);
       }
     }
     checks.push({
@@ -1331,6 +1336,7 @@ export function thumbParams(preset, plane, res) {
   P.jointProfile = j.profile || "concave";
   P.jointDepth = j.depth == null ? 3 : j.depth;
   P.grain = 2; P.mottle = 1; P.speck = 0;
+  for (const kk of ["chamfer", "corner", "irregular", "chip", "tilt", "lift", "relief", "edgeDark"]) P[kk] = 0;
   P.paint = null;
   return P;
 }

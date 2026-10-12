@@ -5,13 +5,15 @@ import { PRESETS, PRESET_TABS, PATTERN_KEYS } from "./presets.js";
 import { MATERIALS, MAT_CATS, MAT_BY_ID } from "./materials.js";
 import { JOINT_FILLS, FILL_BY_ID, JOINT_PROFILES, PROFILE_GROUPS, PROFILE_BY_ID, profileSVG } from "./joints.js";
 
-const STORE_KEY = "texture-tools.paving.v2";
+const STORE_KEY = "texture-tools.paving.v3";
+const OLD_STORE_KEY = "texture-tools.paving.v2";
 const SIDE_KEY = "texture-tools.paving.side";
 const TAB_KEY = "texture-tools.paving.ptab";
 const MCAT_KEY = "texture-tools.paving.mcat";
-const THUMB_KEY = "texture-tools.paving.thumbs.v3"; // сменить версию, если меняется вид узоров
+const THUMB_KEY = "texture-tools.paving.thumbs.v4"; // сменить версию, если меняется вид узоров
 const THUMB_PX = 160;
-const UI_DEFAULTS = { previewRes: 1024, exportRes: 2048, base: "T_Paving", udim: 1001, suffix: "_1", exportHeight: false, presetName: "", presetCat: "" };
+const QUICK_RES = 1024; // быстрый проход превью, затем полный (previewRes)
+const UI_DEFAULTS = { previewRes: 4096, exportRes: 2048, base: "T_Paving", udim: 1001, suffix: "_1", exportHeight: false, presetName: "", presetCat: "" };
 const MAX_MAT = 9;
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
@@ -55,8 +57,13 @@ function base() { return clone(Object.assign({}, DEFAULTS, UI_DEFAULTS)); }
 // узор из пресета: геометрия заменяется, материалы и шов пользователя сохраняются (full — взять и их из подсказки)
 function applyPatternTo(P0, pr, full) {
   const P1 = base();
-  for (const k of ["previewRes", "exportRes", "udim", "suffix", "exportHeight", "seed", "size", "jointFill", "jointColor", "jointProfile", "jointDepth", "jointRough", "normalStrength", "ao", "grain", "mottle", "speck", "speckContrast", "edgeDark"]) if (P0 && k in P0) P1[k] = clone(P0[k]);
+  for (const k of ["previewRes", "exportRes", "udim", "suffix", "exportHeight", "seed", "size", "jointFill", "jointColor", "jointProfile", "jointDepth", "jointRough", "normalStrength", "ao",
+    "grain", "mottle", "speck", "speckContrast", "edgeDark", "chamfer", "profile", "corner", "irregular", "chip", "tilt", "lift", "relief", "reliefScale"]) if (P0 && k in P0) P1[k] = clone(P0[k]);
   for (const k of PATTERN_KEYS) P1[k] = clone(k in pr.p ? pr.p[k] : DEFAULTS[k]);
+  // в пресетах количества заданы для плоскости 4 м — пересчёт под текущую
+  const sc = (P1.size || 3000) / 4000;
+  if (P1.countX > 0) P1.countX = Math.max(1, Math.round(P1.countX * sc));
+  if (P1.countY > 0) P1.countY = Math.max(1, Math.round(P1.countY * sc));
   const pm = pr.p.materials || [{}];
   const need = P1.colorMode === "single" ? 1 : pm.length;
   const old = full || !P0 ? [] : P0.materials || [];
@@ -85,6 +92,17 @@ function applyPatternTo(P0, pr, full) {
 function load() {
   const s = store(STORE_KEY);
   if (s) { try { return Object.assign(base(), JSON.parse(s)); } catch (e) { /* битый JSON */ } }
+  // перенос из прошлой версии: материалы и шов те же, новые значения по умолчанию (4K, 3 м, скрытые настройки — 0)
+  const o = store(OLD_STORE_KEY);
+  if (o) {
+    try {
+      const p = Object.assign(base(), JSON.parse(o));
+      p.previewRes = UI_DEFAULTS.previewRes; p.size = DEFAULTS.size; p.countX = 0; p.countY = 0;
+      for (const k of ["chamfer", "corner", "irregular", "chip", "tilt", "lift", "relief", "edgeDark", "grain", "mottle", "speck"]) p[k] = 0;
+      for (const sm of p.materials || []) delete sm.vary;
+      return p;
+    } catch (e) { /* битый JSON */ }
+  }
   return null;
 }
 let saveT = 0;
@@ -320,10 +338,18 @@ function buildSlots() {
     wIn.addEventListener("input", () => { if (wIn.value !== "" && Number.isFinite(+wIn.value)) { sm.weight = +wIn.value; save(); schedule(); } });
     const wBox = h("span", { class: "pv-weight" }, "доля", wIn);
     shows.push([wBox, (p) => p.colorMode === "mix"]);
+    const sIn = (k, def, min, max, step, title) => {
+      const e = h("input", { type: "number", class: "num", min, max, step, title, value: sm[k] == null ? def : sm[k], style: "width:42px" });
+      e.addEventListener("click", (ev) => ev.stopPropagation());
+      e.addEventListener("input", () => { if (e.value !== "" && Number.isFinite(+e.value)) { sm[k] = +e.value; save(); schedule(); } });
+      return e;
+    };
+    const scBox = h("span", { class: "pv-weight", title: "Масштаб текстуры: ×2 — рисунок вдвое мельче (камешки терраццо, зерно гранита)" }, "×", sIn("texScale", 1, 0.1, 20, 0.1));
+    const hBox = h("span", { class: "pv-weight", title: "Высота (выступ) элементов этого слота над плоскостью, мм" }, "↑", sIn("raise", 0, -50, 100, 0.5), "мм");
     slotsBox.append(h("div", { class: "pv-slot" + (i === activeSlot ? " active" : ""), title: lib ? lib.desc : "", onclick: () => { activeSlot = i; buildSlots(); } },
       h("b", {}, i + 1),
       thumbImg(lib ? `img/mat/${lib.id}.webp` : "", lib ? lib.color : sm.color),
-      h("span", { class: "pv-slot-name" }, slotName(sm)), wBox,
+      h("span", { class: "pv-slot-name" }, slotName(sm)), scBox, hBox, wBox,
       P.materials.length > 1 ? h("button", { class: "btn pv-x", title: "удалить слот", onclick: (e) => { e.stopPropagation(); P.materials.splice(i, 1); activeSlot = Math.min(activeSlot, P.materials.length - 1); P.paint = null; save(); buildSlots(); schedule(0); } }, "✕") : null));
   });
   const cur = P.materials[activeSlot] && MAT_BY_ID[P.materials[activeSlot].lib];
@@ -429,10 +455,9 @@ function buildSlotTuning() {
     slotTune.append(h("div", { class: "pv-mat" },
       h("div", { class: "row" }, h("b", {}, i + 1), h("span", { class: "pv-slot-name" }, slotName(sm))),
       h("div", { class: "row pv-mat2" },
-        h("span", { class: "hint", title: "разброс тона по элементам, %" }, "±"), nIn("vary", lib ? lib.vary : 4, 0, 50, 0.5, 40),
+        h("span", { class: "hint", title: "разброс тона по элементам, %" }, "±"), nIn("vary", 0, 0, 50, 0.5, 40),
         h("span", { class: "hint", title: "добавка к roughness" }, "R±"), nIn("roughAdj", 0, -1, 1, 0.01, 46),
         h("span", { class: "hint", title: "emissive (оникс — по яркости камня)" }, "E"), nIn("emit", 0, 0, 1, 0.05, 40),
-        h("span", { class: "hint", title: "выступ над плоскостью, мм" }, "выступ"), nIn("raise", 0, -50, 100, 0.5, 44),
         h("span", { class: "hint", title: "перепад по ширине элемента, мм" }, "наклон"), nIn("slope", 0, -100, 100, 0.5, 44)),
       h("div", { class: "row pv-mat2" }, h("span", { class: "hint" }, "декор"), decor, sm.decor && sm.decor !== "none" ? dcol : null)));
   });
@@ -447,7 +472,7 @@ side.append(
     ]),
   ]),
   group("Материалы", [
-    h("div", { class: "hint pv-desc" }, "Слот = материал узора (1 — основной). Выберите слот и щёлкните материал в библиотеке."),
+    h("div", { class: "hint pv-desc" }, "Слот = материал узора (1 — основной). Выберите слот и щёлкните материал в библиотеке. × — масштаб текстуры, ↑ — высота элементов слота."),
     slotsBox,
     row(null, [h("button", { class: "btn", onclick: () => { if (P.materials.length < MAX_MAT) { P.materials.push(clone(P.materials[P.materials.length - 1])); activeSlot = P.materials.length - 1; save(); buildSlots(); schedule(0); } } }, "+ слот")]),
     matDesc, matTabs, matGallery,
@@ -503,7 +528,7 @@ side.append(
   group("Текстура", [
     row("Плоскость", [numIn("size", { min: 100, max: 100000, step: 10, w: 70 }), h("span", { class: "hint" }, "мм × мм (квадрат)")]),
     row("Seed", [numIn("seed", { min: 0, max: 999999 }), h("button", { class: "btn", onclick: () => { P.seed = Math.floor(Math.random() * 99999); syncControls(); save(); schedule(0); } }, "🎲")]),
-    row("Превью", [selIn("previewRes", [[512, "512 px"], [1024, "1024 px"], [2048, "2048 px"]], Number)]),
+    row("Превью", [selIn("previewRes", [[1024, "1024 px"], [2048, "2048 px"], [4096, "4096 px (4K)"]], Number), h("span", { class: "hint" }, "сначала 1K, затем полное")]),
   ]),
   group("Экспорт (PNG 24 bit)", [
     row("Размер", [selIn("exportRes", [[2048, "2048 × 2048"], [4096, "4096 × 4096"]], Number)]),
@@ -609,7 +634,8 @@ function updateNames() {
 
 // ───────── воркер превью ─────────
 const viewer = new Viewer(canvas);
-const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" }); // быстрый проход
+let fullWorker = null, fullBusy = false, fullJob = 0;                                   // полный проход (4K)
 let job = 0, running = false, pending = false, timer = 0;
 function snapshot() { return clone(P); }
 function schedule(delay) {
@@ -617,17 +643,42 @@ function schedule(delay) {
   timer = setTimeout(runPreview, delay == null ? 120 : delay);
 }
 function runPreview() {
+  // параметры изменились — устаревший полный проход не нужен
+  if (fullBusy && fullWorker) { fullWorker.terminate(); fullWorker = null; fullBusy = false; }
   if (running) { pending = true; return; }
   running = true;
   busy.textContent = "генерация…";
   busy.style.display = "block";
-  worker.postMessage({ job: ++job, params: snapshot(), N: P.previewRes, mode: "preview" });
+  worker.postMessage({ job: ++job, params: snapshot(), N: Math.min(QUICK_RES, P.previewRes), mode: "preview" });
+}
+function runFull() {
+  if (!fullWorker) {
+    fullWorker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+    fullWorker.onmessage = (e) => {
+      const m = e.data;
+      if (m.job !== fullJob) return;
+      if (m.progress) { busy.textContent = `${P.previewRes} px: ${m.stage} ${Math.round(m.frac * 100)} %`; return; }
+      fullBusy = false;
+      busy.style.display = "none";
+      if (m.ok) applyPreview(m);
+    };
+  }
+  fullBusy = true;
+  fullJob = ++job;
+  busy.textContent = `${P.previewRes} px…`;
+  busy.style.display = "block";
+  fullWorker.postMessage({ job: fullJob, params: snapshot(), N: P.previewRes, mode: "preview" });
 }
 worker.onmessage = (e) => {
   const m = e.data;
   if (m.progress) { busy.textContent = `${m.stage} ${Math.round(m.frac * 100)} %`; return; }
   running = false;
-  if (pending) { pending = false; runPreview(); } else busy.style.display = "none";
+  if (pending) { pending = false; runPreview(); }
+  else if (m.ok && P.previewRes > m.N) runFull();
+  else busy.style.display = "none";
+  applyPreview(m);
+};
+function applyPreview(m) {
   if (!m.ok) { checksBox.textContent = ""; checksBox.append(h("div", { class: "pv-chk err" }, "✗ Ошибка: " + m.error)); setStatus("Мощение: ошибка — " + m.error); return; }
   last = m;
   if (P.paint && P.paint.sig !== m.sig) {
@@ -640,8 +691,8 @@ worker.onmessage = (e) => {
   paintInfo.textContent = m.info.painted ? ` · вручную: ${m.info.painted}` : "";
   const err = m.checks.find((c) => /^Правило:/.test(c.text));
   rulesErr.textContent = err ? err.text : "";
-  setStatus(`Мощение: превью ${m.N} px · ${m.info.cells} элементов · ${m.info.ms} мс`);
-};
+  setStatus(`Мощение: превью ${m.N} px · ${m.info.cells} элементов · ${m.info.ms} мс` + (fullBusy ? ` · считается ${P.previewRes} px…` : ""));
+}
 worker.onerror = (e) => { running = false; busy.style.display = "none"; setStatus("Мощение: сбой воркера — " + (e.message || e)); };
 
 function renderChecks(list) {
