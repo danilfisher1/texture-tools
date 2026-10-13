@@ -188,11 +188,13 @@ const BRICK = [
     name: "20. Литовская «крысиный хвост»",
     p: B({ bond: "L T\nL T @3", colorMode: "parts", base: "T_Brick_RatTail", materials: [M("#9a4a35", 8, 0.86), M("#8f4430", 8, 0.86, 1, { raise: 10, slope: 22 })] }),
   },
+  // облицовочный кирпич 290×85×50 (Тандем Морозово), кладка в полкирпича, шов 10 мм
+  { name: "21. Тёмно-серый кирпич 290×85×50, в полкирпича", p: B({ bond: "L\nL @2", ex: 290, ey: 85, ez: 50, materials: [M("#4a4743", 12, 0.86)], base: "T_Brick_290x50_Dark" }) },
 ];
 
 // подсказки к узору: материалы слотов (id библиотеки) и шов — применяются, когда слотов не хватает
 // или по кнопке «Материалы и шов из узора»; миниатюры узоров всегда нейтральные
-const J = (fill, profile, depth) => ({ fill, profile, depth });
+const J = (fill, profile, depth, color) => ({ fill, profile, depth, color }); // color — цвет шва, иначе первый у заполнения
 const SUGGEST = {
   "Плитка Тип 1": { slots: ["profi_grey", "profi_white"], j: J("polymer_sand", "raked", 3) },
   "Плитка Тип 2": { slots: ["profi_lightgrey"], j: J("polymer_sand", "raked", 3) },
@@ -231,6 +233,7 @@ const SUGGEST = {
   "19. Мозаика 20": { slots: ["bisazza"], j: J("epoxy", "flush", 0.5) },
   "19. Мозаика нерегулярная": { slots: ["smalt"], j: J("cement", "flush", 0.5) },
   "20. Калейдоскоп": { slots: ["winckelmans"], j: J("cement", "flush", 0.5) },
+  "21. Тёмно-серый кирпич": { slots: ["tandem_morozovo_dark"], j: J("trass", "concave", 3, "#4b4b4c") },
 };
 const BRICK_SLOTS = ["feldhaus", "lsr_klinker"];
 function suggest(p) {

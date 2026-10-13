@@ -81,7 +81,7 @@ function applyPatternTo(P0, pr, full) {
   if (pr.j && (full || !P0 || P0.presetCat !== pr.cat)) {
     const f = FILL_BY_ID[pr.j.fill];
     P1.jointFill = pr.j.fill; P1.jointProfile = pr.j.profile; P1.jointDepth = pr.j.depth;
-    if (f) { P1.jointColor = f.colors[0][1]; P1.jointRough = f.r; }
+    if (f) { P1.jointColor = pr.j.color || f.colors[0][1]; P1.jointRough = f.r; }
   }
   P1.presetName = pr.name; P1.presetCat = pr.cat;
   P1.base = "T_" + pr.name.replace(/^[\d.]+\s*/, "").replace(/[«»"(),]/g, "").trim().split(/\s+/).slice(0, 3).join("_");
