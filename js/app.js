@@ -897,6 +897,30 @@ window.__switchTab = function (name) {
   // ══════════ CHECK ══════════
   var checkItems = []; // raw list
   var checkSets = [];  // grouped by key
+  var checkGaps = [];  // пропущенные UDIM внутри диапазона набора (заглушки для них не создаются)
+  var checkProject = { sizes: {}, mixed: false, main: 0, rawMixed: false };
+  var STUB_SIZE = 256;
+
+  // размер, с которым текстура уйдёт в ZIP (с учётом «Размер» / «Привести к общему размеру»)
+  function effSize(it) { return it.resizeOn ? it.resizeTo : it.info.w; }
+  function sizeName(s) { return s === 4096 ? "4K" : s === 2048 ? "2K" : String(s); }
+
+  // в проекте все текстуры одного размера — 2K или 4K; 256 — только однотонные заглушки
+  function analyzeProject() {
+    var sizes = {}, raw = {};
+    checkItems.forEach(function (it) {
+      var e = effSize(it);
+      if (e !== STUB_SIZE) sizes[e] = (sizes[e] || 0) + 1;
+      if (it.info.w !== STUB_SIZE && !it.isStub) raw[it.info.w] = 1;
+    });
+    var keys = Object.keys(sizes).map(Number), main = 0;
+    keys.forEach(function (k) { if (!main || sizes[k] > sizes[main] || (sizes[k] === sizes[main] && k > main)) main = k; });
+    checkProject = { sizes: sizes, mixed: keys.length > 1, main: main, rawMixed: Object.keys(raw).length > 1 };
+    checkItems.forEach(function (it) {
+      var e = effSize(it);
+      it.projBad = checkProject.mixed && e !== STUB_SIZE && e !== main;
+    });
+  }
 
   function parseTexName(name) {
     // T_Address_Diffuse_1.1001.png  or  T_Address_Normal_1.1001.png  or ERM
@@ -962,6 +986,7 @@ window.__switchTab = function (name) {
   function rebuildCheckSets() {
     var map = {};
     var maskFrom = null;
+    analyzeProject();
 
     checkItems.forEach(function (it) {
       var p = it.parsed;
@@ -1017,16 +1042,21 @@ window.__switchTab = function (name) {
       s.resBad = false;
       s.resMsg = [];
       if (s.diffuse) {
-        var dw = s.diffuse.info.w;
-        if (s.normal && s.normal.info.w > dw) {
+        var dw = effSize(s.diffuse);
+        if (s.normal && effSize(s.normal) > dw) {
           s.resBad = true;
-          s.resMsg.push("Normal " + s.normal.info.w + " > Diffuse " + dw);
+          s.resMsg.push("Normal " + effSize(s.normal) + " > Diffuse " + dw);
         }
-        if (s.erm && s.erm.info.w > dw) {
+        if (s.erm && effSize(s.erm) > dw) {
           s.resBad = true;
-          s.resMsg.push("ERM " + s.erm.info.w + " > Diffuse " + dw);
+          s.resMsg.push("ERM " + effSize(s.erm) + " > Diffuse " + dw);
         }
       }
+      // размер не совпадает с общим размером проекта
+      s.projMsg = [];
+      [["Diffuse", s.diffuse], ["Normal", s.normal], ["ERM", s.erm]].forEach(function (p) {
+        if (p[1] && p[1].projBad) s.projMsg.push(p[0] + " " + sizeName(effSize(p[1])));
+      });
 
       // naming consistency with first diffuse mask
       s.namingWarn = [];
@@ -1035,6 +1065,23 @@ window.__switchTab = function (name) {
       }
       if (maskFrom && s.suffix && s.suffix !== maskFrom.suffix) {
         s.namingWarn.push("суффикс " + s.suffix + " ≠ " + maskFrom.suffix);
+      }
+    });
+
+    // пропущенные UDIM: внутри диапазона каждой базы (база + суффикс) не должно быть дыр
+    var groups = {};
+    checkSets.forEach(function (s) {
+      if (!s.fullBase || !s.udim) return;
+      var g = s.fullBase + "|" + s.suffix;
+      (groups[g] = groups[g] || { fullBase: s.fullBase, suffix: s.suffix, udims: {} }).udims[s.udim] = 1;
+    });
+    checkGaps = [];
+    Object.keys(groups).forEach(function (g) {
+      var G = groups[g], us = Object.keys(G.udims).map(Number).sort(function (a, b) { return a - b; });
+      for (var i = 1; i < us.length; i++) {
+        for (var u = us[i - 1] + 1; u < us[i]; u++) {
+          checkGaps.push({ gap: true, fullBase: G.fullBase, suffix: G.suffix, udim: u, prev: us[i - 1], next: us[i] });
+        }
       }
     });
 
@@ -1049,13 +1096,29 @@ window.__switchTab = function (name) {
     var incomplete = checkSets.filter(function (s) { return s.incomplete; }).length;
     var resBad = checkSets.filter(function (s) { return s.resBad; }).length;
     var namingBad = checkItems.filter(function (it) { return !it.parsed || !it.parsed.ok; }).length;
+    var P = checkProject;
+    var sizeList = Object.keys(P.sizes).map(Number).sort(function (a, b) { return a - b; })
+      .map(function (k) { return sizeName(k) + " ×" + P.sizes[k]; }).join(", ");
 
     summary.innerHTML =
       (mask ? ('Маска: <span class="name-hint">' + mask.fullBase + '_&lt;Diffuse|Normal|ERM&gt;' + mask.suffix + '.&lt;UDIM&gt;.png</span> · ') : 'Нет Diffuse для маски · ') +
       'Наборов: ' + checkSets.length +
       (incomplete ? ' · <span class="warn-size">неполных: ' + incomplete + '</span>' : ' · <span style="color:#6c6">все полные</span>') +
+      (checkGaps.length ? ' · <span class="warn-size">пропущено UDIM: ' + checkGaps.length + ' (' +
+        checkGaps.map(function (g) { return g.udim; }).join(", ") + ')</span>' : '') +
+      (P.mixed ? ' · <span class="warn-size">разные размеры в проекте: ' + sizeList + '</span>'
+        : (P.main ? ' · <span style="color:#6c6">размер проекта ' + sizeName(P.main) + '</span>' : '')) +
       (resBad ? ' · <span class="warn-size">ошибка размера: ' + resBad + '</span>' : '') +
       (namingBad ? ' · <span class="warn-size">нейминг: ' + namingBad + '</span>' : '');
+
+    // «Привести к общему размеру» — когда исходные текстуры разного размера
+    var unifyRow = document.getElementById("check-unify-row");
+    unifyRow.style.display = P.rawMixed || P.mixed ? "" : "none";
+    var unifySel = document.getElementById("check-unify-size");
+    if (!unifySel.dataset.touched && (P.main === 2048 || P.main === 4096)) unifySel.value = String(P.main);
+    document.getElementById("check-unify-state").innerHTML = P.mixed
+      ? '<span class="warn-size">В проекте текстуры разного размера (' + sizeList + '). Должно быть всё 2K или всё 4K (+ заглушки 256).</span>'
+      : '<span style="color:#6c6">Проект приведён к ' + sizeName(P.main) + ' — изменённые текстуры пересохранятся при скачивании ZIP.</span>';
 
     function slotHtml(set, type, it) {
       var exp = set.fullBase ? expectedName(set.fullBase, type, set.suffix, set.udim) : type;
@@ -1066,11 +1129,14 @@ window.__switchTab = function (name) {
       }
       var cls = "check-slot";
       if (it.info.hasAlpha) cls += " warn-bit";
-      if (!it.info.sizeOk || it.info.stubBad) cls += " warn-size";
+      if (!it.info.sizeOk || it.info.stubBad || it.projBad) cls += " warn-size";
+      var e = effSize(it), extra = "";
+      if (it.projBad) extra += '<div class="meta warn-size">' + sizeName(e) + ' ≠ размер проекта ' + sizeName(checkProject.main) + '</div>';
+      if (it.resizeOn && e !== it.info.w) extra += '<div class="meta" style="color:#9cf">в ZIP: ' + e + '×' + e + '</div>';
       return '<div class="' + cls + '" data-item="' + checkItems.indexOf(it) + '">' +
         '<div class="slot-type">' + type + '</div>' +
         '<div class="slot-name">' + it.name + '</div>' +
-        '<div class="slot-meta">' + metaHtml(it.info) + '</div>' +
+        '<div class="slot-meta">' + metaHtml(it.info) + extra + '</div>' +
         '<canvas class="set-thumb" data-i="' + checkItems.indexOf(it) + '"></canvas>' +
         '<div class="row" style="margin-top:4px">' +
         '<label><input type="checkbox" class="set-resz" data-i="' + checkItems.indexOf(it) + '"' + (it.resizeOn ? ' checked' : '') + '> Размер</label>' +
@@ -1085,16 +1151,34 @@ window.__switchTab = function (name) {
     }
 
     var html = "";
-    checkSets.forEach(function (s, si) {
+    // наборы и пропущенные UDIM — одним списком по порядку UDIM
+    var rows = checkSets.concat(checkGaps).sort(function (a, b) {
+      var ua = a.udim || 0, ub = b.udim || 0;
+      if (ua !== ub) return ua - ub;
+      return (a.fullBase || "").localeCompare(b.fullBase || "");
+    });
+    rows.forEach(function (s) {
+      var si = checkSets.indexOf(s);
+      if (s.gap) {
+        html += '<div class="check-set udim-gap">' +
+          '<div class="check-set-head"><span class="udim">UDIM ' + s.udim + '</span>' +
+          '<span>' + s.fullBase + s.suffix + '</span>' +
+          '<span class="warn">набора нет — пропущен UDIM между ' + s.prev + ' и ' + s.next + '</span></div>' +
+          '<div class="check-triple">' +
+          ["Diffuse", "Normal", "ERM"].map(function (t) { return slotHtml(s, t, null); }).join("") +
+          '</div></div>';
+        return;
+      }
       var cls = "check-set";
       if (s.incomplete) cls += " incomplete";
-      if (s.resBad) cls += " bad-res";
+      if (s.resBad || s.projMsg.length) cls += " bad-res";
       var head = '<div class="check-set-head">' +
         '<span class="udim">UDIM ' + (s.udim || "?") + '</span>' +
         '<span>' + (s.fullBase || "без маски") + (s.suffix || "") + '</span>';
       if (s.incomplete) head += '<span class="warn">неполный набор: нет ' + s.missing.join(", ") + '</span>';
       else head += '<span class="ok">полный набор</span>';
       if (s.resBad) head += '<span class="warn">размер: ' + s.resMsg.join("; ") + '</span>';
+      if (s.projMsg.length) head += '<span class="warn">не размер проекта ' + sizeName(checkProject.main) + ': ' + s.projMsg.join(", ") + '</span>';
       if (s.namingWarn && s.namingWarn.length) head += '<span class="warn">' + s.namingWarn.join("; ") + '</span>';
       if (s.namingBad) head += '<span class="warn">имя не по маске T_&lt;Адрес&gt;_Diffuse|Normal|ERM_…</span>';
       head += '</div>';
@@ -1132,6 +1216,7 @@ window.__switchTab = function (name) {
     box.querySelectorAll(".set-rsz").forEach(function (sel) {
       sel.addEventListener("change", function () {
         checkItems[+sel.getAttribute("data-i")].resizeTo = +sel.value;
+        renderCheckList();
       });
     });
     box.querySelectorAll(".set-bits").forEach(function (sel) {
@@ -1148,6 +1233,7 @@ window.__switchTab = function (name) {
   document.getElementById("check-files").addEventListener("change", async function (e) {
     var files = filterPngFiles(e.target.files);
     checkItems = [];
+    delete document.getElementById("check-unify-size").dataset.touched;
     setStatus("Анализ...");
     for (var i = 0; i < files.length; i++) {
       try {
@@ -1216,6 +1302,21 @@ window.__switchTab = function (name) {
     renderCheckList();
     setStatus("Добавлено заглушек: " + added);
     if (added) alert("Создано заглушек: " + added + "\nNormal = RGB(128,128,255)\nERM = RGB(0,242,0) — E=0 R≈0.95 M=0\nСкачайте ZIP чтобы сохранить.");
+  });
+
+  // весь проект в 2K или 4K: все текстуры, кроме заглушек 256, масштабируются к выбранному размеру при сохранении
+  document.getElementById("check-unify-size").addEventListener("change", function () { this.dataset.touched = "1"; });
+  document.getElementById("check-unify").addEventListener("click", function () {
+    var size = +document.getElementById("check-unify-size").value, changed = 0;
+    checkItems.forEach(function (it) {
+      if (it.isStub || it.info.w === STUB_SIZE) return;
+      var need = it.info.w !== size || it.info.h !== size;
+      it.resizeOn = need;
+      it.resizeTo = need ? size : it.info.w;
+      if (need) changed++;
+    });
+    renderCheckList();
+    setStatus("Проект → " + sizeName(size) + ": изменится текстур " + changed + " (при скачивании ZIP)");
   });
 
   document.getElementById("check-download").addEventListener("click", async function () {

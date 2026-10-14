@@ -398,6 +398,7 @@ select.sel {
 }
 .check-set.incomplete { border-color: #a44; }
 .check-set.bad-res { border-color: #c66; }
+.check-set.udim-gap { border: 1px dashed #f44; background: #2e1a1a; }
 .check-set-head {
   display: flex;
   flex-wrap: wrap;

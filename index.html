@@ -213,7 +213,16 @@
           <button id="check-download" class="btn primary" disabled>Скачать ZIP</button>
         </div>
         <div class="row">
-          <span class="hint">Маска с первой Diffuse: T_&lt;Адрес&gt;_Diffuse|Normal|ERM_&lt;суффикс&gt;.&lt;UDIM&gt;.png · Наборы по UDIM · Diffuse может быть больше Normal/ERM, наоборот нельзя · Красный = ошибка · Жёлтый = 32 bit</span>
+          <span class="hint">Маска с первой Diffuse: T_&lt;Адрес&gt;_Diffuse|Normal|ERM_&lt;суффикс&gt;.&lt;UDIM&gt;.png · Наборы по UDIM · Весь проект одного размера: 2K или 4K (+ заглушки 256) · Diffuse может быть больше Normal/ERM, наоборот нельзя · Пропущенные UDIM — красные наборы без заглушек · Красный = ошибка · Жёлтый = 32 bit</span>
+        </div>
+        <div class="row" id="check-unify-row" style="display:none">
+          <span id="check-unify-state"></span>
+          <label>Весь проект в</label>
+          <select id="check-unify-size" class="sel">
+            <option value="2048">2K (2048)</option>
+            <option value="4096">4K (4096)</option>
+          </select>
+          <button id="check-unify" class="btn">Привести к общему размеру</button>
         </div>
         <div id="check-summary" class="row hint"></div>
         <div id="check-list" class="check-sets"></div>
