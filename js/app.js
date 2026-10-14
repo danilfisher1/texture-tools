@@ -901,6 +901,59 @@ window.__switchTab = function (name) {
   var checkProject = { sizes: {}, mixed: false, main: 0, rawMixed: false };
   var STUB_SIZE = 256;
 
+  // ── лог и прогресс вкладки ──
+  var checkLogEl = document.getElementById("check-log");
+  var CHECK_LOG_MAX = 3000;
+  function two(n) { return (n < 10 ? "0" : "") + n; }
+  function checkLog(msg, kind) {
+    var d = new Date(), line = document.createElement("div");
+    line.className = kind ? "l-" + kind : "";
+    line.textContent = "[" + two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()) + "] " + msg;
+    var stick = checkLogEl.scrollTop + checkLogEl.clientHeight >= checkLogEl.scrollHeight - 4;
+    checkLogEl.appendChild(line);
+    while (checkLogEl.childNodes.length > CHECK_LOG_MAX) checkLogEl.removeChild(checkLogEl.firstChild);
+    if (stick) checkLogEl.scrollTop = checkLogEl.scrollHeight;
+  }
+  document.getElementById("check-log-clear").addEventListener("click", function () { checkLogEl.textContent = ""; });
+  function fmtTime(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    return Math.floor(s / 60) + ":" + two(s % 60);
+  }
+  function fmtBytes(b) {
+    return b >= 1073741824 ? (b / 1073741824).toFixed(2) + " ГБ" : b >= 1048576 ? (b / 1048576).toFixed(1) + " МБ" : Math.round(b / 1024) + " КБ";
+  }
+  var checkProg = { t0: 0 };
+  function progStart() {
+    checkProg.t0 = performance.now();
+    var box = document.getElementById("check-progress");
+    box.className = "progress";
+    box.style.display = "";
+    progSet(0, "");
+  }
+  // frac 0…1 — общая доля, stage — что делается сейчас
+  function progSet(frac, stage) {
+    frac = Math.max(0, Math.min(1, frac));
+    document.getElementById("check-progress-fill").style.width = (frac * 100).toFixed(1) + "%";
+    document.getElementById("check-progress-stage").textContent = Math.floor(frac * 100) + " % · " + stage;
+    var el = performance.now() - checkProg.t0;
+    document.getElementById("check-progress-time").textContent = "прошло " + fmtTime(el) +
+      (frac > 0.02 && frac < 1 ? " · осталось ~" + fmtTime(el / frac - el) : "");
+  }
+  function progEnd(ok, stage) {
+    document.getElementById("check-progress").className = "progress " + (ok ? "done" : "error");
+    progSet(ok ? 1 : 0, stage);
+    if (!ok) document.getElementById("check-progress-fill").style.width = "100%";
+  }
+  function setCheckBusy(on) {
+    ["check-files", "check-fill-stubs", "check-download", "check-unify"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (on) { el.dataset.wasDisabled = el.disabled ? "1" : ""; el.disabled = true; }
+      else { el.disabled = el.dataset.wasDisabled === "1"; }
+    });
+  }
+  // отдать кадр браузеру, чтобы прогресс перерисовался между тяжёлыми шагами
+  function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
+
   // размер, с которым текстура уйдёт в ZIP (с учётом «Размер» / «Привести к общему размеру»)
   function effSize(it) { return it.resizeOn ? it.resizeTo : it.info.w; }
   function sizeName(s) { return s === 4096 ? "4K" : s === 2048 ? "2K" : String(s); }
@@ -1230,12 +1283,43 @@ window.__switchTab = function (name) {
     document.getElementById("check-download").disabled = !checkItems.length;
   }
 
+  // итог проверки в лог: что не так с проектом
+  function logCheckSummary() {
+    var MAX = 15;
+    function list(arr, fmt, kind, title) {
+      if (!arr.length) return;
+      checkLog(title + ": " + arr.length, kind);
+      arr.slice(0, MAX).forEach(function (x) { checkLog("   " + fmt(x), kind); });
+      if (arr.length > MAX) checkLog("   … ещё " + (arr.length - MAX), kind);
+    }
+    checkLog("Наборов: " + checkSets.length + " · текстур: " + checkItems.length +
+      (checkProject.main ? " · размер проекта " + sizeName(checkProject.main) : ""), "ok");
+    list(checkSets.filter(function (s) { return s.incomplete && s.fullBase; }),
+      function (s) { return "UDIM " + s.udim + ": нет " + s.missing.join(", "); }, "warn", "Неполные наборы");
+    list(checkGaps, function (g) { return "UDIM " + g.udim + " (между " + g.prev + " и " + g.next + ")"; }, "err", "Пропущенные UDIM");
+    if (checkProject.mixed) {
+      checkLog("Разные размеры в проекте: " + Object.keys(checkProject.sizes).map(function (k) { return sizeName(+k) + " ×" + checkProject.sizes[k]; }).join(", ") +
+        " — «Привести к общему размеру»", "err");
+      list(checkItems.filter(function (it) { return it.projBad; }), function (it) { return it.name + " — " + sizeName(effSize(it)); }, "err", "Не размер проекта");
+    }
+    list(checkSets.filter(function (s) { return s.resBad; }), function (s) { return "UDIM " + s.udim + ": " + s.resMsg.join("; "); }, "err", "Normal/ERM больше Diffuse");
+    list(checkItems.filter(function (it) { return !it.parsed || !it.parsed.ok; }), function (it) { return it.name; }, "err", "Имя не по маске");
+    list(checkItems.filter(function (it) { return !it.info.sizeOk || it.info.stubBad; }), function (it) { return it.name + " — " + sizeWarnText(it.info); }, "err", "Размер не по требованиям");
+    list(checkItems.filter(function (it) { return it.info.hasAlpha; }), function (it) { return it.name; }, "warn", "32 bit (есть прозрачность)");
+  }
+
   document.getElementById("check-files").addEventListener("change", async function (e) {
     var files = filterPngFiles(e.target.files);
+    if (!files.length) return;
     checkItems = [];
     delete document.getElementById("check-unify-size").dataset.touched;
     setStatus("Анализ...");
+    setCheckBusy(true);
+    progStart();
+    checkLog("Загрузка и анализ " + files.length + " PNG…");
+    var bad = 0;
     for (var i = 0; i < files.length; i++) {
+      progSet(i / files.length, "анализ " + (i + 1) + "/" + files.length + ": " + files[i].name);
       try {
         var img = await loadImageFromFile(files[i]);
         var info = analyzeImage(img);
@@ -1247,9 +1331,13 @@ window.__switchTab = function (name) {
           outBits: info.hasAlpha ? 32 : 24,
           canvas: null
         });
-      } catch (err) { console.error(err); }
+      } catch (err) { console.error(err); bad++; checkLog("Не удалось прочитать " + files[i].name + ": " + err.message, "err"); }
+      await tick();
     }
+    setCheckBusy(false);
     renderCheckList();
+    progEnd(true, "анализ готов: " + checkItems.length + " PNG, наборов " + checkSets.length + (bad ? ", ошибок чтения " + bad : ""));
+    logCheckSummary();
     setStatus("Проверка: " + checkItems.length + " PNG, наборов: " + checkSets.length);
   });
 
@@ -1283,6 +1371,7 @@ window.__switchTab = function (name) {
         nItem.img = nCanvas;
         checkItems.push(nItem);
         added++;
+        checkLog("Заглушка " + nName + " — 256, RGB(128,128,255)");
       }
       if (!s.erm) {
         var eName = expectedName(s.fullBase, "ERM", s.suffix, s.udim);
@@ -1297,11 +1386,13 @@ window.__switchTab = function (name) {
         };
         checkItems.push(eItem);
         added++;
+        checkLog("Заглушка " + eName + " — 256, RGB(0,242,0): E=0 R≈0.95 M=0");
       }
     });
     renderCheckList();
     setStatus("Добавлено заглушек: " + added);
-    if (added) alert("Создано заглушек: " + added + "\nNormal = RGB(128,128,255)\nERM = RGB(0,242,0) — E=0 R≈0.95 M=0\nСкачайте ZIP чтобы сохранить.");
+    checkLog("Создано заглушек: " + added + (checkGaps.length ? " · для пропущенных UDIM (" + checkGaps.map(function (g) { return g.udim; }).join(", ") + ") заглушки не создаются" : "") +
+      " · сохранятся при скачивании ZIP", "ok");
   });
 
   // весь проект в 2K или 4K: все текстуры, кроме заглушек 256, масштабируются к выбранному размеру при сохранении
@@ -1317,31 +1408,85 @@ window.__switchTab = function (name) {
     });
     renderCheckList();
     setStatus("Проект → " + sizeName(size) + ": изменится текстур " + changed + " (при скачивании ZIP)");
+    checkLog("Проект → " + sizeName(size) + ": будет масштабировано текстур " + changed + " (при скачивании ZIP)", "ok");
   });
 
+  // сборка ZIP: подготовка каждой текстуры (масштаб, 24 bit, PNG) → упаковка → скачивание
   document.getElementById("check-download").addEventListener("click", async function () {
-    var zip = new JSZip();
-    for (var i = 0; i < checkItems.length; i++) {
-      var it = checkItems[i];
-      var c = it.canvas ? it.canvas : imgToCanvas(it.img);
-      if (it.resizeOn) c = resizeCanvas(c, it.resizeTo);
-      if (it.outBits === 24) {
-        var flat = document.createElement("canvas");
-        flat.width = c.width; flat.height = c.height;
-        var fctx = flat.getContext("2d");
-        fctx.fillStyle = "#000";
-        fctx.fillRect(0, 0, flat.width, flat.height);
-        fctx.drawImage(c, 0, 0);
-        c = flat;
+    var N = checkItems.length;
+    if (!N) return;
+    setCheckBusy(true);
+    progStart();
+    var t0 = performance.now();
+    // вес шага ~ число пикселей на выходе: 4K кодируется в 4 раза дольше 2K
+    var weights = checkItems.map(function (it) { var s = effSize(it); return s * s; });
+    var wSum = weights.reduce(function (a, b) { return a + b; }, 0) || 1, wDone = 0;
+    var PREP = 0.88; // доля шкалы на подготовку текстур, остальное — упаковка
+    checkLog("Сборка ZIP: " + N + " текстур" + (checkGaps.length ? " · пропущенные UDIM не заполняются: " + checkGaps.map(function (g) { return g.udim; }).join(", ") : ""));
+    var zip = new JSZip(), errors = 0, bytes = 0;
+    try {
+      for (var i = 0; i < N; i++) {
+        var it = checkItems[i], e = effSize(it), ti = performance.now();
+        var tag = (i + 1) + "/" + N + " " + it.name;
+        var steps = [];
+        if (it.isStub) steps.push("заглушка");
+        if (it.resizeOn && e !== it.info.w) steps.push("масштаб " + it.info.w + "→" + e);
+        steps.push(it.outBits + " bit");
+        var frac0 = (wDone / wSum) * PREP;
+        try {
+          progSet(frac0, "текстура " + tag + " — чтение" + (it.resizeOn && e !== it.info.w ? ", масштаб " + it.info.w + "→" + e : ""));
+          await tick();
+          var c = it.canvas ? it.canvas : imgToCanvas(it.img);
+          if (it.resizeOn) c = resizeCanvas(c, it.resizeTo);
+          if (it.outBits === 24) {
+            var flat = document.createElement("canvas");
+            flat.width = c.width; flat.height = c.height;
+            var fctx = flat.getContext("2d");
+            fctx.fillStyle = "#000";
+            fctx.fillRect(0, 0, flat.width, flat.height);
+            fctx.drawImage(c, 0, 0);
+            c = flat;
+          }
+          progSet(frac0 + (weights[i] / wSum) * PREP * 0.3, "текстура " + tag + " — кодирование PNG " + c.width + "×" + c.height + ", " + it.outBits + " bit");
+          await tick();
+          var blob = await canvasToPngBlob(c, it.outBits);
+          zip.file(it.name, blob);
+          bytes += blob.size;
+          checkLog(tag + " · " + c.width + "×" + c.height + " · " + steps.join(", ") + " · " + fmtBytes(blob.size) + " · " + ((performance.now() - ti) / 1000).toFixed(1) + " с", "dim");
+        } catch (err) {
+          errors++;
+          console.error(err);
+          checkLog("Ошибка: " + tag + " — " + (err && err.message ? err.message : err), "err");
+        }
+        wDone += weights[i];
       }
-      zip.file(it.name, await canvasToPngBlob(c, it.outBits));
+      checkLog("Текстуры готовы: " + (N - errors) + " из " + N + " · " + fmtBytes(bytes) + " · " + fmtTime(performance.now() - t0));
+      progSet(PREP, "упаковка ZIP…");
+      await tick();
+      var tz = performance.now(), lastFile = "";
+      var content = await zip.generateAsync({ type: "blob" }, function (meta) {
+        if (meta.currentFile && meta.currentFile !== lastFile) lastFile = meta.currentFile;
+        progSet(PREP + (1 - PREP) * 0.98 * (meta.percent / 100), "упаковка ZIP " + Math.floor(meta.percent) + " %" + (lastFile ? ": " + lastFile : ""));
+      });
+      checkLog("ZIP упакован: " + fmtBytes(content.size) + " · " + fmtTime(performance.now() - tz));
+      var a = document.createElement("a");
+      var url = URL.createObjectURL(content);
+      a.href = url;
+      a.download = "checked_textures.zip";
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      var msg = "готово: checked_textures.zip · " + (N - errors) + " текстур · " + fmtBytes(content.size) + " · " + fmtTime(performance.now() - t0) + (errors ? " · ошибок " + errors : "");
+      progEnd(!errors, msg);
+      checkLog("Скачивание: " + msg, errors ? "warn" : "ok");
+      setStatus("ZIP готов (" + (N - errors) + "/" + N + ")");
+    } catch (err) {
+      console.error(err);
+      progEnd(false, "ошибка сборки ZIP: " + (err && err.message ? err.message : err));
+      checkLog("Ошибка сборки ZIP: " + (err && err.message ? err.message : err) + " — возможно, браузеру не хватило памяти", "err");
+      setStatus("Ошибка сборки ZIP");
+    } finally {
+      setCheckBusy(false);
     }
-    var content = await zip.generateAsync({ type: "blob" });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(content);
-    a.download = "checked_textures.zip";
-    a.click();
-    setStatus("ZIP готов (" + checkItems.length + ")");
   });
 
 

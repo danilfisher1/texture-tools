@@ -387,9 +387,26 @@ select.sel {
 
 .check-sets {
   overflow-y: auto;
-  max-height: calc(100vh - 170px);
+  flex: 1;
+  min-height: 0;
   padding: 6px;
 }
+/* прогресс сборки ZIP / анализа и лог вкладки «Проверка / правка» */
+.progress { padding: 2px 6px 6px; }
+.progress-bar { height: 14px; background: #1e1e1e; border: 1px solid #111; overflow: hidden; }
+.progress-fill { height: 100%; width: 0; background: linear-gradient(#6a9a6a, #3a6a3a); transition: width 0.15s; }
+.progress.done .progress-fill { background: linear-gradient(#6a8aaa, #3a5a7a); }
+.progress.error .progress-fill { background: #a44; }
+.progress-text { display: flex; justify-content: space-between; gap: 12px; margin-top: 3px; color: #bbb; }
+.progress-text span:last-child { color: #888; white-space: nowrap; }
+.check-log-group { margin: 8px 0 0; flex-shrink: 0; }
+.check-log-group .log { height: min(140px, 22vh); max-height: 70vh; min-height: 40px; resize: vertical; }
+.check-log-group .group-title { display: flex; align-items: center; justify-content: space-between; }
+.btn-mini { padding: 0 6px; font-size: 10px; font-weight: normal; }
+.log .l-warn { color: #dc8; }
+.log .l-err { color: #f66; }
+.log .l-dim { color: #888; }
+.log .l-ok { color: #6c6; }
 .check-set {
   background: #2a2a2a;
   border: 1px solid #1a1a1a;
