@@ -39,15 +39,15 @@ export const MATERIALS = [
   m("paver", "gotika_fino_gris_parga", "Готика Granite Fino, Грис Парга", "Шлифованная бетонная плитка: светло-серая основа с серой гранитной крошкой.", { tex: "Terrazzo005", scale: 650, g: { duo: ["#6b7380", "#cbd0d4"] }, r: [0.3, 0.38], disp: 0.03, nrm: 0.3, vary: 3, color: "#b2b7bc" }),
   m("paver", "gotika_fino_mansurovsky", "Готика Granite Fino, Мансуровский", "Шлифованная бетонная плитка: светлая основа с голубовато-серой крошкой мансуровского гранита.", { tex: "Concrete025", scale: 1300, g: { duo: ["#a6acbc", "#d4d3cc"], c: 1.3, b: 0.94 }, r: [0.3, 0.38], disp: 0.02, nrm: 0.15, vary: 3, color: "#c2c4c7" }),
   m("paver", "gotika_fino_pokostovsky", "Готика Granite Fino, Покостовский", "Шлифованная бетонная плитка: белая основа с мелкой чёрной крошкой покостовского гранита.", { tex: "Terrazzo005", scale: 300, g: { duo: ["#23272b", "#e8eaeb"], c: 1.2 }, r: [0.3, 0.38], disp: 0.02, nrm: 0.2, vary: 2, color: "#c9cbcc" }),
-  m("paver", "braer_old_town", "Браер «Старый город»", "Форма со скруглёнными краями, имитирует мостовые Европы.", { tex: "Concrete031", scale: 900, g: { s: 0.3 }, r: [0.3, 0.6], vary: 7, color: "#8b8984" }),
-  m("paver", "vybor_listopad", "Выбор «Листопад»", "Плавный переход нескольких цветов на одной детали.", { tex: "Concrete044A", scale: 900, g: { s: 0 }, r: [0.3, 0.6], vary: 3, pal: ["#8e5534", "#c79a52", "#4e3b2c", "#a5713f"], pmode: "blend", color: "#946a43" }),
-  m("paver", "steingot_bavaria", "Steingot «Бавария»", "Тёмные пёстрые коричнево-чёрные тона под кирпичную классику.", { tex: "Concrete044A", scale: 900, g: { s: 0 }, r: [0.3, 0.6], vary: 3, pal: ["#3f2a20", "#5c3a2a", "#2a221e", "#6b4632"], pmode: "pick", color: "#4a3427" }),
-  m("paver", "steingot_melange", "Steingot «Меланж»", "Мягкий градиент природных песчаных и серых оттенков.", { tex: "Concrete044A", scale: 900, g: { s: 0 }, r: [0.3, 0.6], vary: 3, pal: ["#b8ab93", "#8f8a80", "#cdc2ab", "#a29a8b"], pmode: "blend", color: "#ada391" }),
+  m("paver", "braer_old_town", "Браер «Старый город»", "Форма со скруглёнными краями, имитирует мостовые Европы.", { tex: "Gravel009", scale: 900, nrm: 0.6, g: { s: 0.3 }, r: [0.3, 0.6], vary: 7, color: "#8b8984" }),
+  m("paver", "vybor_listopad", "Выбор «Листопад»", "Плавный переход нескольких цветов на одной детали.", { tex: "Gravel009", scale: 900, nrm: 0.6, g: { s: 0 }, r: [0.3, 0.6], vary: 3, pal: ["#8e5534", "#c79a52", "#4e3b2c", "#a5713f"], pmode: "blend", color: "#946a43" }),
+  m("paver", "steingot_bavaria", "Steingot «Бавария»", "Тёмные пёстрые коричнево-чёрные тона под кирпичную классику.", { tex: "Gravel009", scale: 900, nrm: 0.6, g: { s: 0 }, r: [0.3, 0.6], vary: 3, pal: ["#3f2a20", "#5c3a2a", "#2a221e", "#6b4632"], pmode: "pick", color: "#4a3427" }),
+  m("paver", "steingot_melange", "Steingot «Меланж»", "Мягкий градиент природных песчаных и серых оттенков.", { tex: "Gravel009", scale: 900, nrm: 0.6, g: { s: 0 }, r: [0.3, 0.6], vary: 3, pal: ["#b8ab93", "#8f8a80", "#cdc2ab", "#a29a8b"], pmode: "blend", color: "#ada391" }),
   m("paver", "vybor_stonemix", "Выбор «Стоунмикс»", "Фактурный слой из крошки мрамора, базальта и гранита.", { tex: "Gravel036S", scale: 260, g: { s: 0.6, c: 1.05 }, r: [0.2, 0.7], disp: 0.6, vary: 3, color: "#8f8c86" }),
   m("paver", "gotika_klinker", "Готика Клинкер", "Мелкоформатная бетонная плитка под немецкий пережжённый клинкер.", { tex: "Concrete039", scale: 700, g: { duo: ["#3b211a", "#a35a3c"], c: 1.0 }, r: [0.3, 0.55], vary: 10, color: "#7a4430" }),
-  m("paver", "profi_grey", "Профи, Серый СЦ", "Вибропрессованная плитка на сером цементе (лист благоустройства, Тип 1).", { tex: "Concrete044A", scale: 900, g: { duo: ["#5b5d5d", "#838585"] }, r: [0.3, 0.6], vary: 4, color: "#6e7070" }),
-  m("paver", "profi_white", "Профи, белая", "Белый бетон для вставок (лист благоустройства, Тип 1).", { tex: "Concrete044A", scale: 900, g: { duo: ["#b8b9b5", "#e2e3df"] }, r: [0.3, 0.6], vary: 3, color: "#cecfcb" }),
-  m("paver", "profi_lightgrey", "Профи, Светло-серый СЦ", "Вибропрессованная плитка светло-серая (лист благоустройства, Тип 2).", { tex: "Concrete044A", scale: 900, g: { duo: ["#8f908c", "#bbbcb8"] }, r: [0.3, 0.6], vary: 4, color: "#a5a6a2" }),
+  m("paver", "profi_grey", "Профи, Серый СЦ", "Вибропрессованная плитка на сером цементе (лист благоустройства, Тип 1).", { tex: "Gravel009", scale: 900, nrm: 0.6, g: { duo: ["#5b5d5d", "#838585"] }, r: [0.3, 0.6], vary: 4, color: "#6e7070" }),
+  m("paver", "profi_white", "Профи, белая", "Белый бетон для вставок (лист благоустройства, Тип 1).", { tex: "Gravel009", scale: 900, nrm: 0.6, g: { duo: ["#b8b9b5", "#e2e3df"] }, r: [0.3, 0.6], vary: 3, color: "#cecfcb" }),
+  m("paver", "profi_lightgrey", "Профи, Светло-серый СЦ", "Вибропрессованная плитка светло-серая (лист благоустройства, Тип 2).", { tex: "Gravel009", scale: 900, nrm: 0.6, g: { duo: ["#8f908c", "#bbbcb8"] }, r: [0.3, 0.6], vary: 4, color: "#a5a6a2" }),
 
   // ───── мрамор ─────
   m("marble", "carrara", "Каррара (Carrara White)", "Эталонный белый итальянский мрамор с мягкими серыми прожилками.", { tex: "Marble012", scale: 1200, disp: 0.05, nrm: 0.4, color: "#dcdde0" }),
@@ -84,7 +84,7 @@ export const MATERIALS = [
   m("porcelain", "estima_traffic", "Estima «Traffic»", "Технический сверхпрочный керамогранит, окрашенный в массе.", { tex: "Granite002A", scale: 200, g: { s: 0.2, b: 0.85 }, r: [0.3, 0.55], disp: 0.03, nrm: 0.3, color: "#a3a19c" }),
   m("porcelain", "mirage_oxide", "Mirage (окисленный металл)", "Дизайнерский керамогранит с имитацией окисленного металла.", { tex: "Rust007", scale: 1200, g: { s: 0.75, b: 0.8 }, r: [0.4, 0.4], disp: 0.05, nrm: 0.3, color: "#7a5440" }),
   m("porcelain", "cersanit_wood", "Cersanit «Wood»", "Доступная плитка под паркетную доску.", { tex: "Wood049", scale: 1200, dir: true, r: [0.3, 0.5], disp: 0.05, nrm: 0.3, vary: 6, color: "#9a7a5a" }),
-  m("porcelain", "coliseumgres", "ColiseumGres", "Практичный матовый материал для входных групп и террас.", { tex: "Concrete031", scale: 1500, g: { s: 0.5, b: 1.05, t: [1.02, 1.0, 0.96] }, r: [0.3, 0.6], disp: 0.05, nrm: 0.4, color: "#a39d92" }),
+  m("porcelain", "coliseumgres", "ColiseumGres", "Практичный матовый материал для входных групп и террас.", { tex: "Concrete016", scale: 1500, g: { s: 0.5, b: 1.05, t: [1.02, 1.0, 0.96] }, r: [0.3, 0.6], disp: 0.05, nrm: 0.4, color: "#a39d92" }),
 
   // ───── травертин, оникс, сланец, песчаник ─────
   m("stone", "travertine_classico", "Травертин Классико", "Бежевый пористый камень — им облицован Колизей.", { tex: "Travertine001", scale: 1200, dir: true, r: [0.5, 0.35], disp: 0.4, color: "#cdbb9e" }),
@@ -130,7 +130,7 @@ export const MATERIALS = [
   m("concrete", "epoxy", "Эпоксидный наливной пол", "Идеально ровное глянцевое полимерное покрытие.", { proc: "smooth", r: [0, 0.07], vary: 0, disp: 0.01, color: "#7d8287" }),
   m("concrete", "polyurethane", "Полиуретановый пол", "Эластичное бесшовное покрытие, устойчивое к ударам.", { proc: "smooth", r: [0, 0.38], vary: 0, disp: 0.01, color: "#8c8f8c" }),
   m("concrete", "floor_3d", "3D-наливной пол", "Прозрачный полимер над фотопечатью (галька под водой).", { tex: "Gravel009", scale: 900, g: { s: 1.1, c: 1.05 }, r: [0, 0.03], disp: 0.0, nrm: 0.0, color: "#8a8478" }),
-  m("concrete", "topfacs", "Бетонные плиты TopFacs", "Крупноформатные панели из фибробетона для брутальных фасадов.", { tex: "Concrete031", scale: 2400, g: { s: 0.3, b: 0.7 }, r: [0.4, 0.45], disp: 0.3, vary: 4, color: "#6c6a66" }),
+  m("concrete", "topfacs", "Бетонные плиты TopFacs", "Крупноформатные панели из фибробетона для брутальных фасадов.", { tex: "Concrete016", scale: 2400, g: { s: 0.3, b: 0.7 }, r: [0.4, 0.45], disp: 0.3, vary: 4, color: "#6c6a66" }),
   m("concrete", "gfrc", "Стеклофибробетон (СФБ)", "Лёгкий прочный бетон со стекловолокном для лепнины.", { tex: "Concrete046", scale: 2000, g: { s: 0.3, b: 1.05 }, r: [0.4, 0.45], disp: 0.1, vary: 2, color: "#cbc8c1" }),
   m("concrete", "terrazzo_insitu", "Мозаичный бетон (in-situ)", "Заливной пол терраццо с последующей шлифовкой.", { tex: "Terrazzo005", scale: 900, r: [0.5, 0.1], disp: 0.02, nrm: 0.25, color: "#b5b1aa" }),
 

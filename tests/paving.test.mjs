@@ -4,6 +4,7 @@ import zlib from "node:zlib";
 import fs from "node:fs";
 import { generate, buildLayout, parseRules, parseBond, ruleMat, rng, DEFAULTS, _internal } from "../js/paving/gen.js";
 import { encodePNG } from "../js/paving/png.js";
+import { buildMips } from "../js/paving/textures.js";
 
 const P0 = (o) => Object.assign({}, DEFAULTS, o);
 let fails = 0;
@@ -221,6 +222,35 @@ test("слот: оттенок задаёт средний цвет, режим�
   for (const rotMode of ["auto", "along", "fixed", "r180", "r90", "r45", "r30", "r15", "rany"]) {
     const q = generate(P0({ layout: "bond", ex: 250, ey: 120, ez: 65, joint: 10, bond: "L\nL @2", materials: [{ lib: "stone_veneer", rotMode, rotAngle: 15 }] }), 64, {});
     assert.equal(q.checks.filter((c) => c.level === "err").length, 0, rotMode);
+  }
+});
+
+test("шов 0 у элемента во весь тайл не рисуется на границе тайла", () => {
+  const N = 128, r = generate(P0({ size: 3000, layout: "stack", ex: 3000, ey: 3000, countX: 1, countY: 1, joint: 0, jointColor: "#ff0000", ao: 0, materials: [{ color: "#808080" }] }), N, {});
+  let red = 0;
+  for (let i = 0; i < N * N; i++) if (r.diffuse[i * 4] > 140) red++;
+  assert.equal(red, 0, `пикселей шва: ${red}`);
+  // с обычным швом он лежит на границе тайла симметрично: и в первом, и в последнем столбце
+  const q = generate(P0({ size: 3000, layout: "stack", ex: 3000, ey: 3000, countX: 1, countY: 1, joint: 60, jointColor: "#ff0000", ao: 0, materials: [{ color: "#808080" }] }), N, {});
+  const redCol = (x) => { let n = 0; for (let y = 0; y < N; y++) if (q.diffuse[(y * N + x) * 4] > 140) n++; return n; };
+  assert.ok(redCol(0) === N && redCol(N - 1) === N, `шов по краям: ${redCol(0)} / ${redCol(N - 1)}`);
+});
+
+test("без швов: сплошное покрытие, текстура бесшовна на стыке тайла", () => {
+  // искусственная тайлящаяся текстура 64×64 (шум) вместо загрузки WebP
+  const W = 64, R = rng(5), img = (f) => { const d = new Uint8ClampedArray(W * W * 4); for (let i = 0; i < W * W; i++) { const v = f(i); d[i * 4] = v[0]; d[i * 4 + 1] = v[1]; d[i * 4 + 2] = v[2]; d[i * 4 + 3] = 255; } return buildMips({ w: W, h: W, data: d }); };
+  const col = img(() => { const v = 60 + R() * 140; return [v, v * 0.95, v * 0.9]; });
+  const tex = { mats: [{ color: col, normal: img(() => [128, 128, 255]), rough: img(() => [128, 128, 128]), disp: img(() => [128, 128, 128]), mean: { rgb: [130, 124, 117], lum: 0.49 }, roughMean: 0.5 }], fill: null };
+  for (const layout of ["stack", "running", "herring90", "hex", "voronoi", "bond"]) {
+    const P = P0({ size: 3000, layout, ex: 300, ey: 150, ez: 65, joint: 8, chamfer: 3, tilt: 2, lift: 1, jointColor: "#ff0000", ao: 0, noJoints: true,
+      materials: [{ lib: "terrazzo", vary: 20, rotMode: "r45" }] });
+    const r = generate(P, 128, { tex });
+    let red = 0;
+    for (let i = 0; i < 128 * 128; i++) if (r.diffuse[i * 4] > 2 * r.diffuse[i * 4 + 1] + 40) red++;
+    assert.equal(red, 0, `${layout}: пикселей шва ${red}`);
+    const errs = r.checks.filter((c) => c.level === "err").map((c) => c.text);
+    assert.equal(errs.length, 0, `${layout}: ${errs.join("; ")}`);
+    assert.ok(r.checks.some((c) => c.level === "ok" && c.text.startsWith("Без швов: цвет на стыке")), layout);
   }
 });
 

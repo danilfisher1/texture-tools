@@ -41,7 +41,7 @@ export const DEFAULTS = {
     { color: "#6e7070", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
     { color: "#cecfcb", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
   ],
-  colorMode: "single", noTouch: false, jointMetal: 0,
+  colorMode: "single", noTouch: false, jointMetal: 0, noJoints: false,
   rules: "4 1 >-1\n-\n4 2 3 >-1\n-",
   paint: null,
 };
@@ -828,8 +828,10 @@ function rasterize(cells, N, S, P, R, zig) {
     const pad = Math.ceil(zA * k) + 1;
     let x0 = Math.floor(minx * k) - pad, x1 = Math.ceil(maxx * k) + pad;
     let y0 = Math.floor(miny * k) - pad, y1 = Math.ceil(maxy * k) + pad;
-    if (x1 - x0 > N) x1 = x0 + N;
-    if (y1 - y0 > N) y1 = y0 + N;
+    // ячейка шириной во весь тайл: ровно N пикселей, центры которых внутри [min, min + S) — иначе крайний
+    // столбец считался бы по копии ячейки за тайлом (d < 0) и на границе тайла рисовался шов даже при ширине 0
+    if (x1 - x0 > N) { x0 = Math.ceil(minx * k - 0.5); x1 = x0 + N; }
+    if (y1 - y0 > N) { y0 = Math.ceil(miny * k - 0.5); y1 = y0 + N; }
     for (let py = y0; py < y1; py++) {
       const yy = (py + 0.5) / k, wy = mod(py, N) * N;
       for (let e = 0; e < ne; e++) { rowC[e] = B[e] * yy + C[e]; rowS[e] = A[e] * yy; }
@@ -900,6 +902,9 @@ export function generate(Pin, N, opt) {
   P.size = Math.max(10, num(P.size, 4000));
   P.joint = Math.max(0, num(P.joint, 3));
   P.ex = Math.max(1, num(P.ex, 100)); P.ey = Math.max(1, num(P.ey, 100));
+  // без швов: элементы встык и сливаются в сплошное покрытие — ни шва, ни фаски, ни разброса по элементам
+  const noJ = !!P.noJoints;
+  if (noJ) { P.joint = 0; P.chamfer = 0; P.tilt = 0; P.lift = 0; P.chip = 0; P.edgeDark = 0; }
   const S = P.size;
   const mats = (P.materials && P.materials.length ? P.materials : DEFAULTS.materials).slice(0, 9);
   const nMat = mats.length;
@@ -949,7 +954,7 @@ export function generate(Pin, N, opt) {
   const Rr = rng(P.seed * 7919 + 41);
   prog("растр", 0.08);
   const prof = PROFILE_BY_ID[P.jointProfile] || PROFILE_BY_ID.concave;
-  const zig = prof.zig ? { amp: Math.max(1.5, P.joint * 1.1), period: Math.max(24, P.joint * 7) } : null;
+  const zig = prof.zig && !noJ ? { amp: Math.max(1.5, P.joint * 1.1), period: Math.max(24, P.joint * 7) } : null;
   const ras = rasterize(cells, N, S, P, Rr, zig);
   const { best, id, eny } = ras;
   const TXS = opt.tex || { mats: [], fill: null };
@@ -973,6 +978,8 @@ export function generate(Pin, N, opt) {
       fin: (lib && lib.fin) || {}, proc: lib ? lib.proc || (lib.tex ? null : "smooth") : null,
       scale: lib ? lib.scale / clamp(num(sm.texScale, 1), 0.05, 20) : 800, legacy: !lib, // масштаб ×2 — рисунок мельче вдвое
     };
+    // без швов текстура сплошная по всей плоскости: целое число повторов на S — бесшовно на стыке тайла
+    if (noJ && tx) { o.repeats = Math.max(1, Math.round(S / o.scale)); o.scaleNom = o.scale; o.scale = S / o.repeats; }
     if (tx) {
       o.lev = levelFor(tx.color, o.scale);
       o.C = tx.color[o.lev]; o.Nm = tx.normal[Math.min(o.lev, tx.normal.length - 1)];
@@ -1003,7 +1010,7 @@ export function generate(Pin, N, opt) {
   const cRough = new Float32Array(nc), tx = new Float32Array(nc), ty = new Float32Array(nc), lift = new Float32Array(nc);
   const cCos = new Float32Array(nc), cSin = new Float32Array(nc), cOx = new Float32Array(nc), cOy = new Float32Array(nc);
   for (let c = 0; c < nc; c++) {
-    const s = slot[mat[c]], v = s.vary;
+    const s = slot[mat[c]], v = noJ ? 0 : s.vary;
     const tone = 1 + (Rc() * 2 - 1) * v;
     const tr = 1 + (Rc() * 2 - 1) * v * 0.15, tg = 1 + (Rc() * 2 - 1) * v * 0.15, tb = 1 + (Rc() * 2 - 1) * v * 0.15;
     let col = s.base;
@@ -1030,8 +1037,12 @@ export function generate(Pin, N, opt) {
       const st = ROT_STEPS[rm] || 0;
       phi = s.rotBase + ((st ? Math.floor(Rc() * Math.round(360 / st)) * st : Rc() * 360) * Math.PI) / 180;
     }
-    cCos[c] = Math.cos(phi); cSin[c] = Math.sin(phi);
     cOx[c] = Rc() * s.scale; cOy[c] = Rc() * s.scale;
+    if (noJ) { // одна текстура на весь слот: поворот кратно 90° (иначе не бесшовно), без своего куска у элемента
+      phi = Math.round(s.rotBase / (Math.PI / 2)) * (Math.PI / 2);
+      cOx[c] = cOy[c] = 0; cRough[c] = 0;
+    }
+    cCos[c] = Math.cos(phi); cSin[c] = Math.sin(phi);
   }
   const cVoid = new Uint8Array(nc), cRot = new Uint8Array(nc), cAA = new Float32Array(nc);
   const Rd = rng(P.seed * 7919 + 53);
@@ -1112,7 +1123,7 @@ export function generate(Pin, N, opt) {
       if (ly > half) ly -= S; else if (ly < -half) ly += S;
       const rel = Re[px];
       let hF = lift[c] + tx[c] * lx + ty[c] * ly + relief * rel * (0.55 + 0.45 * t) - off + 0.02 * g + s.raise;
-      if (s.slope) hF += (s.slope * lx) / Math.max(ras.cw[c], 1);
+      if (s.slope && !noJ) hF += (s.slope * lx) / Math.max(ras.cw[c], 1);
       // профиль шва по поперечной координате X ∈ [−1, 1]
       const Xa = clamp(best[i] / Math.max(jhE, 1e-3), 0, 1), nW = clamp(0.5 + 0.4 * Ch[px], 0, 1);
       let hJ = profH(sgn >= 0 ? Xa : -Xa, sgn, nW);
@@ -1121,6 +1132,7 @@ export function generate(Pin, N, opt) {
         const hEdge = profH(sgn >= 0 ? 1 : -1, sgn, nW);
         if (hEdge > hF - s.raise + 0.05 && !s.raise) { a = 0; hJ = hEdge; }
       }
+      if (noJ) a = cVoid[c] ? 0 : 1; // без швов — везде лицо элемента, даже на границе тайла
       if (cVoid[c]) hJ = -3 * D - 15; // пустота ажурной кладки
       hJ += 0.25 * jGrain * g;
 
@@ -1129,8 +1141,8 @@ export function generate(Pin, N, opt) {
       let lum = (1 + grainA * g + mottleA * Mo[px]) * (1 - edgeDark * (1 - t)) * (1 + relShade * rel);
       if (a > 0) {
         if (s.tx) {
-          const cs = cCos[c], sn = cSin[c];
-          const tu = cs * lx + sn * ly + cOx[c], tv = -sn * lx + cs * ly + cOy[c];
+          const cs = cCos[c], sn = cSin[c], ux = noJ ? x : lx, uy = noJ ? y : ly; // без швов — координаты плоскости
+          const tu = cs * ux + sn * uy + cOx[c], tv = -sn * ux + cs * uy + cOy[c];
           bil3(s.C, tu * s.ku, tv * s.ku, rgb);
           if (s.pal) {
             const w = s.pmode === "blend" ? clamp(0.5 + 0.9 * Bl[px] + 0.6 * cPh[c], 0, 1) : 0;
@@ -1322,7 +1334,32 @@ export function generate(Pin, N, opt) {
   };
   const sx = seam(0), sy = seam(1);
   checks.push({ level: sx.ok && sy.ok ? "ok" : "err", text: `Бесшовность: перепад на стыке X ${sx.edge.toFixed(2)} / Y ${sy.edge.toFixed(2)} мм ≤ типичного внутри (${sx.ref.toFixed(2)} / ${sy.ref.toFixed(2)})` });
-  checks.push({ level: "info", text: `Шов ${(100 - (faceCnt / NN) * 100).toFixed(1)} % площади · высота от ${hMin.toFixed(1)} до ${hMax.toFixed(1)} мм` });
+  if (noJ) {
+    // без швов: цвет на стыке тайла должен быть так же непрерывен, как внутри (текстура — целое число повторов).
+    // Сравниваются только соседи одного слота (у палитры — одного элемента): стык разных материалов — не шов
+    const cseam = (axis) => {
+      const diffs = new Float64Array(N);
+      for (let a = 0; a < N; a++) {
+        const a2 = a === N - 1 ? 0 : a + 1;
+        let sum = 0, cnt = 0;
+        for (let b = 0; b < N; b++) {
+          const p1 = axis ? a * N + b : b * N + a, p2 = axis ? a2 * N + b : b * N + a2, c1 = id[p1], c2 = id[p2];
+          if (mat[c1] !== mat[c2] || (slot[mat[c1]].pal && c1 !== c2)) continue;
+          const i1 = p1 * 4, i2 = p2 * 4;
+          sum += Math.abs(diffuse[i1] - diffuse[i2]) + Math.abs(diffuse[i1 + 1] - diffuse[i2 + 1]) + Math.abs(diffuse[i1 + 2] - diffuse[i2 + 2]);
+          cnt++;
+        }
+        diffs[a] = cnt ? sum / cnt / 3 : 0;
+      }
+      const edge = diffs[N - 1], inner = Array.from(diffs.subarray(0, N - 1)).sort((p, q) => p - q);
+      const ref = inner[Math.floor(inner.length * 0.995)] || 0;
+      return { ok: edge <= ref * 1.1 + 0.5, edge, ref };
+    };
+    const cx2 = cseam(0), cy2 = cseam(1);
+    checks.push({ level: cx2.ok && cy2.ok ? "ok" : "err", text: `Без швов: цвет на стыке тайла X ${cx2.edge.toFixed(1)} / Y ${cy2.edge.toFixed(1)} ≤ типичного внутри (${cx2.ref.toFixed(1)} / ${cy2.ref.toFixed(1)})` });
+    const rep = slot.map((s, i) => (s.repeats ? `слот ${i + 1}: текстура ${s.repeats}×${s.repeats} на плоскость (повтор ${s.scale.toFixed(0)} мм, ${pct(s.scale, s.scaleNom)})` : null)).filter(Boolean);
+    checks.push({ level: "info", text: "Швы выключены: сплошное покрытие" + (rep.length ? " · " + rep.join(" · ") : "") + ` · высота от ${hMin.toFixed(1)} до ${hMax.toFixed(1)} мм` });
+  } else checks.push({ level: "info", text: `Шов ${(100 - (faceCnt / NN) * 100).toFixed(1)} % площади · высота от ${hMin.toFixed(1)} до ${hMax.toFixed(1)} мм` });
 
   let height16 = null;
   if (opt.height16) {

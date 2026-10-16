@@ -56,7 +56,7 @@ function base() { return clone(Object.assign({}, DEFAULTS, UI_DEFAULTS)); }
 // узор из пресета: геометрия заменяется, материалы и шов пользователя сохраняются (full — взять и их из подсказки)
 function applyPatternTo(P0, pr, full) {
   const P1 = base();
-  for (const k of ["previewRes", "exportRes", "udim", "suffix", "exportHeight", "seed", "size", "jointFill", "jointColor", "jointProfile", "jointDepth", "jointRough", "normalStrength", "ao",
+  for (const k of ["previewRes", "exportRes", "udim", "suffix", "exportHeight", "seed", "size", "noJoints", "jointFill", "jointColor", "jointProfile", "jointDepth", "jointRough", "normalStrength", "ao",
     "grain", "mottle", "speck", "speckContrast", "edgeDark", "chamfer", "profile", "corner", "irregular", "chip", "tilt", "lift", "relief", "reliefScale"]) if (P0 && k in P0) P1[k] = clone(P0[k]);
   for (const k of PATTERN_KEYS) P1[k] = clone(k in pr.p ? pr.p[k] : DEFAULTS[k]);
   // в пресетах количества заданы для плоскости 4 м — пересчёт под текущую
@@ -494,6 +494,14 @@ function buildSlotTuning() {
   });
 }
 
+// настройки шва — скрыты, когда швы выключены
+const jointBody = h("div", {},
+  row("Ширина", [numIn("joint", { min: 0, max: 100, step: 0.5 }), h("span", { class: "hint" }, "мм"), h("label", {}, "Глубина / выступ"), numIn("jointDepth", { min: 0, max: 40, step: 0.5 }), h("span", { class: "hint" }, "мм")]),
+  row("Roughness", [numIn("jointRough", { min: 0, max: 1, step: 0.01 }), h("span", { class: "hint", title: "G в ERM; при выборе заполнения ставится его значение" }, "G в ERM"), checkIn("jointMetal", "металл")]),
+  h("div", { class: "pv-sub" }, "Заполнение"), fillGallery, fillColors, fillDesc,
+  h("div", { class: "pv-sub" }, "Профиль"), profDesc, profBox);
+shows.push([jointBody, (p) => !p.noJoints]);
+
 side.append(
   group("Узор", [
     presetTabs,
@@ -531,10 +539,12 @@ side.append(
     row(null, [h("span", { class: "hint" }, "ЛКМ по элементу — слот кисти, ПКМ — вернуть как было"), paintInfo]),
   ]),
   group("Шов", [
-    row("Ширина", [numIn("joint", { min: 0, max: 100, step: 0.5 }), h("span", { class: "hint" }, "мм"), h("label", {}, "Глубина / выступ"), numIn("jointDepth", { min: 0, max: 40, step: 0.5 }), h("span", { class: "hint" }, "мм")]),
-    row("Roughness", [numIn("jointRough", { min: 0, max: 1, step: 0.01 }), h("span", { class: "hint", title: "G в ERM; при выборе заполнения ставится его значение" }, "G в ERM"), checkIn("jointMetal", "металл")]),
-    h("div", { class: "pv-sub" }, "Заполнение"), fillGallery, fillColors, fillDesc,
-    h("div", { class: "pv-sub" }, "Профиль"), profDesc, profBox,
+    row(null, [checkIn("noJoints", "Без швов — сплошное покрытие")]),
+    row(null, [h("div", { class: "hint pv-help" },
+      "Элементы встык сливаются: нет шва, фаски и разброса тона, в том числе на границе тайла.\n" +
+      "Текстура слота идёт сплошь и бесшовно — её масштаб подгоняется до целого числа повторов на плоскость,\n" +
+      "поворот — кратно 90°. Разные материалы слотов стыкуются встык.")], (p) => p.noJoints),
+    jointBody,
   ]),
   group("Раскладка", [
     row("Тип", [selIn("layout", LAYOUTS.map((l) => [l.id, l.name]))]),
