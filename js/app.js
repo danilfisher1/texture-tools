@@ -64,10 +64,11 @@ window.__switchTab = function (name) {
     var data = ctx.getImageData(0, 0, w, h).data;
     var hasAlpha = false;
     var colors = {};
-    var colorCount = 0;
+    var colorCount = 0, rMax = 0;
     var sample = (w * h > 262144) ? 4 : 1; // subsample huge
     for (var i = 0; i < data.length; i += 4 * sample) {
       if (data[i + 3] < 255) hasAlpha = true;
+      if (data[i] > rMax) rMax = data[i]; // для ERM: R = emissive, должен быть 0
       if (w === 256 && h === 256) {
         var key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
         if (!colors[key]) { colors[key] = 1; colorCount++; }
@@ -83,7 +84,7 @@ window.__switchTab = function (name) {
     }
     var sizeOk = (w === h && ALLOWED_SIZES.indexOf(w) !== -1);
     return {
-      w: w, h: h, hasAlpha: hasAlpha, bits: hasAlpha ? 32 : 24,
+      w: w, h: h, hasAlpha: hasAlpha, bits: hasAlpha ? 32 : 24, rMax: rMax,
       colorCount: (w === 256 && h === 256) ? colorCount : null,
       sizeOk: sizeOk,
       stubBad: (w === 256 && h === 256 && colorCount > 1)
@@ -657,7 +658,7 @@ window.__switchTab = function (name) {
         return isMetal ? (v >= thresh ? 1 : 0) : v;
       };
     }
-    var eFn = sample(it.eMode, it.eVal, it.eSrc, it.eBright, it.eContr, false, 0);
+    var eFn = function () { return 0; }; // emissive (R) всегда 0
     var rFn = sample(it.rMode, it.rVal, it.rSrc, it.rBright, it.rContr, false, 0);
     var mFn = sample(it.mMode, it.mVal, it.mSrc, 0, 1, true, it.mThresh);
     var out = document.createElement("canvas");
@@ -1105,6 +1106,8 @@ window.__switchTab = function (name) {
           s.resMsg.push("ERM " + effSize(s.erm) + " > Diffuse " + dw);
         }
       }
+      // emissive (R в ERM) всегда 0
+      s.ermEmit = !!(s.erm && s.erm.info.rMax > 0);
       // размер не совпадает с общим размером проекта
       s.projMsg = [];
       [["Diffuse", s.diffuse], ["Normal", s.normal], ["ERM", s.erm]].forEach(function (p) {
@@ -1182,8 +1185,9 @@ window.__switchTab = function (name) {
       }
       var cls = "check-slot";
       if (it.info.hasAlpha) cls += " warn-bit";
-      if (!it.info.sizeOk || it.info.stubBad || it.projBad) cls += " warn-size";
+      if (!it.info.sizeOk || it.info.stubBad || it.projBad || (type === "ERM" && it.info.rMax > 0)) cls += " warn-size";
       var e = effSize(it), extra = "";
+      if (type === "ERM" && it.info.rMax > 0) extra += '<div class="meta warn-size">R (emissive) до ' + it.info.rMax + ' — должен быть 0</div>';
       if (it.projBad) extra += '<div class="meta warn-size">' + sizeName(e) + ' ≠ размер проекта ' + sizeName(checkProject.main) + '</div>';
       if (it.resizeOn && e !== it.info.w) extra += '<div class="meta" style="color:#9cf">в ZIP: ' + e + '×' + e + '</div>';
       return '<div class="' + cls + '" data-item="' + checkItems.indexOf(it) + '">' +
@@ -1224,13 +1228,14 @@ window.__switchTab = function (name) {
       }
       var cls = "check-set";
       if (s.incomplete) cls += " incomplete";
-      if (s.resBad || s.projMsg.length) cls += " bad-res";
+      if (s.resBad || s.projMsg.length || s.ermEmit) cls += " bad-res";
       var head = '<div class="check-set-head">' +
         '<span class="udim">UDIM ' + (s.udim || "?") + '</span>' +
         '<span>' + (s.fullBase || "без маски") + (s.suffix || "") + '</span>';
       if (s.incomplete) head += '<span class="warn">неполный набор: нет ' + s.missing.join(", ") + '</span>';
       else head += '<span class="ok">полный набор</span>';
       if (s.resBad) head += '<span class="warn">размер: ' + s.resMsg.join("; ") + '</span>';
+      if (s.ermEmit) head += '<span class="warn">ERM: emissive (R) ≠ 0 — до ' + s.erm.info.rMax + ', должен быть 0</span>';
       if (s.projMsg.length) head += '<span class="warn">не размер проекта ' + sizeName(checkProject.main) + ': ' + s.projMsg.join(", ") + '</span>';
       if (s.namingWarn && s.namingWarn.length) head += '<span class="warn">' + s.namingWarn.join("; ") + '</span>';
       if (s.namingBad) head += '<span class="warn">имя не по маске T_&lt;Адрес&gt;_Diffuse|Normal|ERM_…</span>';
@@ -1302,6 +1307,7 @@ window.__switchTab = function (name) {
         " — «Привести к общему размеру»", "err");
       list(checkItems.filter(function (it) { return it.projBad; }), function (it) { return it.name + " — " + sizeName(effSize(it)); }, "err", "Не размер проекта");
     }
+    list(checkSets.filter(function (s) { return s.ermEmit; }), function (s) { return s.erm.name + " — R до " + s.erm.info.rMax; }, "err", "ERM с emissive ≠ 0 (R должен быть 0)");
     list(checkSets.filter(function (s) { return s.resBad; }), function (s) { return "UDIM " + s.udim + ": " + s.resMsg.join("; "); }, "err", "Normal/ERM больше Diffuse");
     list(checkItems.filter(function (it) { return !it.parsed || !it.parsed.ok; }), function (it) { return it.name; }, "err", "Имя не по маске");
     list(checkItems.filter(function (it) { return !it.info.sizeOk || it.info.stubBad; }), function (it) { return it.name + " — " + sizeWarnText(it.info); }, "err", "Размер не по требованиям");

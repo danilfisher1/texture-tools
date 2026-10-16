@@ -406,7 +406,7 @@ function buildMatGallery() {
 }
 function assignMaterial(mt) {
   const sm = P.materials[activeSlot] || (P.materials[activeSlot] = {});
-  for (const k of ["color", "rough", "metal", "vary", "roughAdj", "tint", "tintAmt"]) delete sm[k]; // поворот и масштаб слота остаются
+  for (const k of ["color", "rough", "metal", "vary", "roughAdj", "tint", "tintAmt", "emit"]) delete sm[k]; // поворот и масштаб слота остаются
   sm.lib = mt.id;
   save(); buildSlots(); schedule(0);
   setStatus(`Мощение: слот ${activeSlot + 1} — ${mt.name} (текстура загружается при первом выборе)`);
@@ -466,7 +466,7 @@ const countRows = [0, 1].map((i) => row((p) => (CNT[lui(p).cnt][i] || [])[1] || 
   (() => { const s = h("span", { class: "hint" }); dyn.push([s, (p) => (CNT[lui(p).cnt][i] || [])[2] || ""]); return s; })(),
 ], (p) => !!CNT[lui(p).cnt][i]));
 
-// тонкая настройка слотов (разброс тона, roughness, emissive, выступ, наклон, декор)
+// тонкая настройка слотов (разброс тона, наклон, декор)
 const slotTune = h("div", {});
 function buildSlotTuning() {
   slotTune.textContent = "";
@@ -488,7 +488,6 @@ function buildSlotTuning() {
       h("div", { class: "row" }, h("b", {}, i + 1), h("span", { class: "pv-slot-name" }, slotName(sm))),
       h("div", { class: "row pv-mat2" },
         h("span", { class: "hint", title: "разброс тона по элементам, %" }, "±"), nIn("vary", 0, 0, 50, 0.5, 40),
-        h("span", { class: "hint", title: "emissive (оникс — по яркости камня)" }, "E"), nIn("emit", 0, 0, 1, 0.05, 40),
         h("span", { class: "hint", title: "перепад по ширине элемента, мм" }, "наклон"), nIn("slope", 0, -100, 100, 0.5, 44)),
       h("div", { class: "row pv-mat2" }, h("span", { class: "hint" }, "декор"), decor, sm.decor && sm.decor !== "none" ? dcol : null)));
   });

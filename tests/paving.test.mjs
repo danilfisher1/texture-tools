@@ -225,6 +225,15 @@ test("слот: оттенок задаёт средний цвет, режим�
   }
 });
 
+test("ERM: emissive (R) всегда 0 — даже со старым emit в слоте и у оникса", () => {
+  for (const noJoints of [false, true]) {
+    const r = generate(P0({ noJoints, materials: [{ lib: "epoxy", emit: 0.25 }, { lib: "onice_cristallo", emit: 1 }, { color: "#808080", emit: 0.5 }], colorMode: "mix" }), 64, {});
+    let mx = 0;
+    for (let i = 0; i < 64 * 64; i++) mx = Math.max(mx, r.erm[i * 4]);
+    assert.equal(mx, 0, `noJoints=${noJoints}: R до ${mx}`);
+  }
+});
+
 test("шов 0 у элемента во весь тайл не рисуется на границе тайла", () => {
   const N = 128, r = generate(P0({ size: 3000, layout: "stack", ex: 3000, ey: 3000, countX: 1, countY: 1, joint: 0, jointColor: "#ff0000", ao: 0, materials: [{ color: "#808080" }] }), N, {});
   let red = 0;

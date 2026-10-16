@@ -2,7 +2,7 @@
 // Единицы — мм. Текстура покрывает S×S мм плоскости и имеет N×N px.
 // Бесшовность по построению: раскладка замыкается на целом числе элементов/модулей,
 // шум — решётка с целым периодом на S, производные и размытие — с заворотом краёв.
-// Карты: Diffuse (sRGB), ERM (R = emissive, G = roughness, B = metallic 0/1), Normal DX (Y−), Height (мм).
+// Карты: Diffuse (sRGB), ERM (R = emissive — всегда 0, G = roughness, B = metallic 0/1), Normal DX (Y−), Height (мм).
 
 import { MAT_BY_ID } from "./materials.js";
 import { PROFILE_BY_ID, FILL_BY_ID } from "./joints.js";
@@ -38,8 +38,8 @@ export const DEFAULTS = {
   jointFill: "cement", jointColor: "#bdbab3", jointProfile: "concave", jointRough: 0.92, jointDepth: 3,
   normalStrength: 1, ao: 50,
   materials: [
-    { color: "#6e7070", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
-    { color: "#cecfcb", vary: 4, rough: 0.84, metal: 0, emit: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
+    { color: "#6e7070", vary: 4, rough: 0.84, metal: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
+    { color: "#cecfcb", vary: 4, rough: 0.84, metal: 0, weight: 1, raise: 0, slope: 0, decor: "none", decorColor: "#2f3a4a" },
   ],
   colorMode: "single", noTouch: false, jointMetal: 0, noJoints: false,
   rules: "4 1 >-1\n-\n4 2 3 >-1\n-",
@@ -970,7 +970,6 @@ export function generate(Pin, N, opt) {
       r0: lib ? lib.r[0] : 0, r1: lib ? lib.r[1] : num(sm.rough, 0.8),
       // metallic: свой у слота, иначе из библиотеки (0/1)
       metal: num(sm.metal != null ? sm.metal : lib ? lib.metal : 0, 0) >= 0.5 ? 255 : 0,
-      emit: clamp(num(sm.emit, 0), 0, 1), emitTex: !!(lib && lib.emitTex),
       raise: num(sm.raise, 0), slope: num(sm.slope, 0),
       decor: Math.max(0, DECORS.findIndex((d) => d[0] === sm.decor)), decRGB: hexToRgb(sm.decorColor || "#2f3a4a").map((v) => v * 255),
       disp: lib ? lib.disp : 0, nrm: lib ? lib.nrm : 0, dir: !!(lib && lib.dir),
@@ -1137,7 +1136,7 @@ export function generate(Pin, N, opt) {
       hJ += 0.25 * jGrain * g;
 
       // ── лицо элемента ──
-      let r = 0, gg = 0, b = 0, rough = 0, emit = 0, dsx = 0, dsy = 0, disp = 0;
+      let r = 0, gg = 0, b = 0, rough = 0, dsx = 0, dsy = 0, disp = 0;
       let lum = (1 + grainA * g + mottleA * Mo[px]) * (1 - edgeDark * (1 - t)) * (1 + relShade * rel);
       if (a > 0) {
         if (s.tx) {
@@ -1155,7 +1154,6 @@ export function generate(Pin, N, opt) {
           const sx = (-nx0 / nz0) * s.nrm, sy = (-ny0 / nz0) * s.nrm;
           dsx = cs * sx - sn * sy; dsy = sn * sx + cs * sy;
           disp = (bil1(s.Dp, tu * s.kr, tv * s.kr) / 255 - 0.5) * 2 * s.disp;
-          if (s.emitTex && s.emit) emit = s.emit * Math.min(1, (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 / s.meanLum * 0.8);
         } else {
           if (s.pal && s.pmode === "blend") {
             const w = clamp(0.5 + 0.9 * Bl[px] + 0.6 * cPh[c], 0, 1);
@@ -1167,7 +1165,6 @@ export function generate(Pin, N, opt) {
             lum *= 0.8 + 0.2 * t + 0.03 * Wb[px];
           } else if (s.proc === "glass") lum *= 1 + 0.03 * Mo[px] + 0.02 * g;
           else if (s.proc === "smooth") lum *= 1 + 0.006 * Mo[px];
-          if (s.emit) emit = s.emit;
         }
         if (s.tint) { // оттенок слота: яркость пикселя сохраняется, цвет — заданный
           const L = (0.299 * r + 0.587 * gg + 0.114 * b) / 255 / s.refLum, tc = s.tint.c, ta = s.tint.a;
@@ -1220,7 +1217,7 @@ export function generate(Pin, N, opt) {
       diffuse[o + 1] = jg + (gg - jg) * a;
       diffuse[o + 2] = jb + (b - jb) * a;
       diffuse[o + 3] = 255;
-      erm[o] = emit * a * 255;
+      erm[o] = 0; // emissive (R) всегда 0
       erm[o + 1] = clamp(jRo + (rough - jRo) * a, 0, 1) * 255;
       erm[o + 2] = a >= 0.5 ? s.metal : jMet;
       erm[o + 3] = 255;
@@ -1360,7 +1357,6 @@ export function generate(Pin, N, opt) {
     const rep = slot.map((s, i) => (s.repeats ? `слот ${i + 1}: текстура ${s.repeats}×${s.repeats} на плоскость (повтор ${s.scale.toFixed(0)} мм, ${pct(s.scale, s.scaleNom)})` : null)).filter(Boolean);
     checks.push({ level: "info", text: "Швы выключены: сплошное покрытие" + (rep.length ? " · " + rep.join(" · ") : "") + ` · высота от ${hMin.toFixed(1)} до ${hMax.toFixed(1)} мм` });
   } else checks.push({ level: "info", text: `Шов ${(100 - (faceCnt / NN) * 100).toFixed(1)} % площади · высота от ${hMin.toFixed(1)} до ${hMax.toFixed(1)} мм` });
-
   let height16 = null;
   if (opt.height16) {
     height16 = new Uint16Array(NN);
