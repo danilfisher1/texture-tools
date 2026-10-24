@@ -47,6 +47,7 @@
 | [Onyx015](https://ambientcg.com/view?id=Onyx015) | Оникс Кристалло |
 | [Plaster003](https://ambientcg.com/view?id=Plaster003) | Feldhaus Klinker, ЛСР Клинкер, Recke Brickerei (ангоб, глазурь), Roben, клинкерная плитка |
 | [Rock002](https://ambientcg.com/view?id=Rock002) | Шунгит |
+| [Rock018](https://ambientcg.com/view?id=Rock018) | Колотый архитектурный бетон |
 | [Rock022](https://ambientcg.com/view?id=Rock022) | Сланец Мультиколор, Гибкий камень (каменный шпон) |
 | [Rock029](https://ambientcg.com/view?id=Rock029) | Лемезит (бордовый плитняк) |
 | [Rock042S](https://ambientcg.com/view?id=Rock042S) | Готика Natur Гавана, Porcelanosa |
