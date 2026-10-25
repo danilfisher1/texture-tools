@@ -1000,6 +1000,11 @@ export function generate(Pin, N, opt) {
     o.rMean = tx ? clamp(num(tx.roughMean, 0.5), 0, 1) : 0;
     o.roughAuto = clamp(o.r0 * o.rMean + o.r1, 0, 1);
     if (lib && sm.rough != null && sm.rough !== "" && Number.isFinite(+sm.rough)) o.r1 = clamp(+sm.rough, 0, 1) - o.r0 * o.rMean;
+    // без швов: три копии текстуры против видимого повтора (поворот кратно 90° и сдвиг — периодичность на S сохраняется)
+    if (noJ && o.C) {
+      const Rb = rng(P.seed * 7919 + 61 + i * 13), ph0 = Math.round(o.rotBase / (Math.PI / 2)) * (Math.PI / 2);
+      o.bomb = [0, 1, 2].map((k) => ({ cs: Math.cos(ph0 + (k * Math.PI) / 2), sn: Math.sin(ph0 + (k * Math.PI) / 2), ox: k ? Rb() * o.scale : 0, oy: k ? Rb() * o.scale : 0 }));
+    }
     return o;
   });
 
@@ -1087,6 +1092,11 @@ export function generate(Pin, N, opt) {
   const rBlend = anyBlend ? noiseRows(S, N, 140, 2, sd + 7) : null;
   const rWob = anyGlaze ? noiseRows(S, N, 30, 2, sd + 8) : null;
   const rSpark = anyFin ? noiseRows(S, N, 1.1, 1, sd + 9) : null;
+  // поля выбора копии текстуры (без швов): пятна ~ половины повтора
+  const bombSlots = slot.filter((s) => s.bomb);
+  const bombCell = bombSlots.length ? 0.45 * Math.min(...bombSlots.map((s) => s.scale)) : 0;
+  const rBomb = bombSlots.length ? [0, 1, 2].map((k) => noiseRows(S, N, bombCell, 2, sd + 21 + k)) : null;
+  const bombN = [null, null, null], bU = new Float64Array(3), bV = new Float64Array(3), bD = new Float64Array(3), bS = new Float64Array(3);
   const profH = (X, sgn, n) => (sgn || !prof.asym ? prof.h(sgn ? X : Math.abs(X), D, ch, n) : 0.5 * (prof.h(Math.abs(X), D, ch, n) + prof.h(-Math.abs(X), D, ch, n)));
 
   const NN = N * N;
@@ -1103,6 +1113,7 @@ export function generate(Pin, N, opt) {
     const G = rGrain(py), Mo = rMottle(py), Ro = rRough(py);
     const Re = rRel ? rRel(py) : zero, Ch = rChip ? rChip(py) : zero, Sp = rSpeck ? rSpeck(py) : null;
     const Bl = rBlend ? rBlend(py) : zero, Wb = rWob ? rWob(py) : zero, Sk = rSpark ? rSpark(py) : zero;
+    if (rBomb) for (let k = 0; k < 3; k++) bombN[k] = rBomb[k](py);
     for (let px = 0; px < N; px++) {
       const i = py * N + px, o = i * 4, x = (px + 0.5) * mmpx;
       const c = id[i], m = mat[c], s = slot[m];
@@ -1139,7 +1150,40 @@ export function generate(Pin, N, opt) {
       let r = 0, gg = 0, b = 0, rough = 0, dsx = 0, dsy = 0, disp = 0;
       let lum = (1 + grainA * g + mottleA * Mo[px]) * (1 - edgeDark * (1 - t)) * (1 + relShade * rel);
       if (a > 0) {
-        if (s.tx) {
+        if (s.tx && s.bomb) {
+          // без швов: три копии текстуры (сдвиг + поворот 90°), в каждой точке побеждает «выше по рельефу»
+          // с поправкой на периодический шум — повтор не читается, сколы остаются резкими, стык тайла бесшовный
+          let wsum = 0, cr0 = 0, cg0 = 0, cb0 = 0, ro0 = 0, sx0 = 0, sy0 = 0, dp0 = 0;
+          for (let k = 0; k < 3; k++) {
+            const L = s.bomb[k], tu = L.cs * x + L.sn * y + L.ox, tv = -L.sn * x + L.cs * y + L.oy;
+            bU[k] = tu; bV[k] = tv;
+            bD[k] = bil1(s.Dp, tu * s.kr, tv * s.kr) / 255;
+            bS[k] = bombN[k][px] + 2.2 * bD[k];
+          }
+          const top = Math.max(bS[0], bS[1], bS[2]);
+          for (let k = 0; k < 3; k++) {
+            const w = Math.exp((bS[k] - top) / 0.035);
+            if (w < 0.01) continue;
+            const L = s.bomb[k], tu = bU[k], tv = bV[k];
+            bil3(s.C, tu * s.ku, tv * s.ku, rgb);
+            cr0 += rgb[0] * w; cg0 += rgb[1] * w; cb0 += rgb[2] * w;
+            ro0 += (bil1(s.Rg, tu * s.kr, tv * s.kr) / 255) * w;
+            const nx0 = bil1(s.Nm, tu * s.kn, tv * s.kn, 0) / 127.5 - 1, ny0 = bil1(s.Nm, tu * s.kn, tv * s.kn, 1) / 127.5 - 1;
+            const nz0 = Math.sqrt(Math.max(0.05, 1 - nx0 * nx0 - ny0 * ny0));
+            const sx = (-nx0 / nz0) * s.nrm, sy = (-ny0 / nz0) * s.nrm;
+            sx0 += (L.cs * sx - L.sn * sy) * w; sy0 += (L.sn * sx + L.cs * sy) * w;
+            dp0 += bD[k] * w; wsum += w;
+          }
+          rgb[0] = cr0 / wsum; rgb[1] = cg0 / wsum; rgb[2] = cb0 / wsum;
+          if (s.pal) {
+            const w = s.pmode === "blend" ? clamp(0.5 + 0.9 * Bl[px] + 0.6 * cPh[c], 0, 1) : 0;
+            const Lm = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 / s.meanLum;
+            r = (cr[c] + (p2[c * 3] - cr[c]) * w) * Lm; gg = (cg[c] + (p2[c * 3 + 1] - cg[c]) * w) * Lm; b = (cb[c] + (p2[c * 3 + 2] - cb[c]) * w) * Lm;
+          } else { r = rgb[0] * cr[c]; gg = rgb[1] * cg[c]; b = rgb[2] * cb[c]; }
+          rough = (ro0 / wsum) * s.r0 + s.r1 + cRough[c];
+          dsx = sx0 / wsum; dsy = sy0 / wsum;
+          disp = (dp0 / wsum - 0.5) * 2 * s.disp;
+        } else if (s.tx) {
           const cs = cCos[c], sn = cSin[c], ux = noJ ? x : lx, uy = noJ ? y : ly; // без швов — координаты плоскости
           const tu = cs * ux + sn * uy + cOx[c], tv = -sn * ux + cs * uy + cOy[c];
           bil3(s.C, tu * s.ku, tv * s.ku, rgb);
