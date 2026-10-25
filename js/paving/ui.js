@@ -12,7 +12,7 @@ const MCAT_KEY = "texture-tools.paving.mcat";
 const THUMB_KEY = "texture-tools.paving.thumbs.v4"; // сменить версию, если меняется вид узоров
 const THUMB_PX = 160;
 const QUICK_RES = 1024; // быстрый проход превью, затем полный (previewRes)
-const UI_DEFAULTS = { previewRes: 4096, exportRes: 2048, base: "T_Paving", udim: 1001, suffix: "_1", exportHeight: false, presetName: "", presetCat: "" };
+const UI_DEFAULTS = { previewRes: 4096, exportRes: 2048, base: "T_Paving", udim: 1001, suffix: "_1", exportHeight: false, export90: false, export90Pct: 90, presetName: "", presetCat: "" };
 const MAX_MAT = 9;
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
@@ -56,7 +56,7 @@ function base() { return clone(Object.assign({}, DEFAULTS, UI_DEFAULTS)); }
 // узор из пресета: геометрия заменяется, материалы и шов пользователя сохраняются (full — взять и их из подсказки)
 function applyPatternTo(P0, pr, full) {
   const P1 = base();
-  for (const k of ["previewRes", "exportRes", "udim", "suffix", "exportHeight", "seed", "size", "noJoints", "jointFill", "jointColor", "jointProfile", "jointDepth", "jointRough", "normalStrength", "ao",
+  for (const k of ["previewRes", "exportRes", "udim", "suffix", "exportHeight", "export90", "export90Pct", "seed", "size", "noJoints", "jointFill", "jointColor", "jointProfile", "jointDepth", "jointRough", "normalStrength", "ao",
     "grain", "mottle", "speck", "speckContrast", "edgeDark", "chamfer", "profile", "corner", "irregular", "chip", "tilt", "lift", "relief", "reliefScale"]) if (P0 && k in P0) P1[k] = clone(P0[k]);
   for (const k of PATTERN_KEYS) P1[k] = clone(k in pr.p ? pr.p[k] : DEFAULTS[k]);
   // в пресетах количества заданы для плоскости 4 м — пересчёт под текущую
@@ -577,6 +577,7 @@ side.append(
     row("UDIM", [numIn("udim", { min: 1001, max: 1100 }), h("label", {}, "Суффикс"), textIn("suffix", "short")]),
     namesBox,
     row(null, [checkIn("exportHeight", "+ Height 16 bit (для displacement)")]),
+    row(null, [checkIn("export90", "90%"), numIn("export90Pct", { min: 50, max: 99, step: 1 }), h("span", { class: "hint" }, "% — выгрузить уменьшенными, как во вкладке «90% края» (повтор по краям)")]),
     row(null, [
       h("button", { class: "btn primary", onclick: () => doExport("zip") }, "Скачать ZIP"),
       h("button", { class: "btn", onclick: () => doExport("Diffuse") }, "Diffuse"),

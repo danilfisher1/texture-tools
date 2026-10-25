@@ -4,6 +4,30 @@ import { generate, thumbParams, litImage } from "./gen.js";
 import { encodePNG } from "./png.js";
 import { prepareTextures } from "./textures.js";
 
+// уменьшение до sc и раскладка повтором (текстура периодична — края сходятся), как processPadImage на сайте:
+// out(x) = уменьшенная((x + off) mod sw), off = sw + ⌊sw/2⌋ − ⌊N/2⌋. ERM: metallic (B) снова 0/255, emissive (R) 0
+function shrinkTile(src, N, sc, ch, erm) {
+  const sw = Math.max(1, Math.round(N * sc)), off = (sw + Math.floor(sw / 2) - Math.floor(N / 2)) % sw, k = N / sw;
+  const out = new src.constructor(src.length), mx = new Int32Array(N), wx = new Float32Array(N), my = new Int32Array(N), wy = new Float32Array(N);
+  for (let x = 0; x < N; x++) {
+    const u = (((x + off) % sw) + 0.5) * k - 0.5, x0 = Math.floor(u);
+    mx[x] = x0; wx[x] = u - x0; my[x] = x0; wy[x] = u - x0;
+  }
+  for (let y = 0; y < N; y++) {
+    const y0 = (my[y] + N) % N, y1 = (y0 + 1) % N, fy = wy[y];
+    for (let x = 0; x < N; x++) {
+      const x0 = (mx[x] + N) % N, x1 = (x0 + 1) % N, fx = wx[x], o = (y * N + x) * ch;
+      const a = (y0 * N + x0) * ch, b = (y0 * N + x1) * ch, c = (y1 * N + x0) * ch, d = (y1 * N + x1) * ch;
+      for (let q = 0; q < ch; q++) {
+        const top = src[a + q] + (src[b + q] - src[a + q]) * fx, bot = src[c + q] + (src[d + q] - src[c + q]) * fx;
+        out[o + q] = Math.round(top + (bot - top) * fy);
+      }
+      if (erm) { out[o] = 0; out[o + 2] = out[o + 2] >= 128 ? 255 : 0; }
+    }
+  }
+  return out;
+}
+
 self.onmessage = async (e) => {
   const { job, params, N, mode } = e.data;
   const progress = (stage, frac) => self.postMessage({ job, progress: true, stage, frac });
@@ -45,6 +69,10 @@ self.onmessage = async (e) => {
     progress("PNG", 0.97);
     const jobs = { Diffuse: [r.diffuse, "rgb"], ERM: [r.erm, "rgb"], Normal: [r.normal, "rgb"] };
     if (r.height16) jobs.Height = [r.height16, "gray16"];
+    if (params.export90) { // «90%»: как вкладка «90% края» — уменьшить, разложить повтором, взять центр N × N
+      const sc = Math.min(0.99, Math.max(0.5, (+params.export90Pct || 90) / 100));
+      for (const k in jobs) jobs[k][0] = shrinkTile(jobs[k][0], N, sc, jobs[k][1] === "gray16" ? 1 : 4, k === "ERM");
+    }
     const files = {}, names = Object.keys(jobs);
     // все карты сжимаются одновременно (в Node на 4K это быстрее на треть, в Chrome — без разницы)
     const bytes = await Promise.all(names.map((k) => encodePNG(jobs[k][0], N, N, jobs[k][1])));
